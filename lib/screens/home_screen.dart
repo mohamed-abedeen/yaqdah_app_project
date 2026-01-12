@@ -9,25 +9,26 @@ import 'rest_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
 import 'login_screen.dart';
-import '../widgets/camera_feed.dart'; // ✅ NEW
-import '../widgets/dashboard_ui.dart'; // ✅ NEW
+import '../widgets/camera_feed.dart';
+import '../widgets/dashboard_ui.dart';
 import '../services/database_service.dart';
 import '../services/audio_service.dart';
 import '../services/gemini_service.dart';
 import '../services/location_sms_service.dart';
-import 'package:water_drop_nav_bar/water_drop_nav_bar.dart';
+import '../services/theme_service.dart'; // ✅ NEW IMPORT
+
 // ==========================================
-// 1. ROOT WIDGET
+// 1. ROOT WIDGET (Handles Theme & Login)
 // ==========================================
-class YaqdahApp extends StatefulWidget {
+class Homescreen extends StatefulWidget {
   final List<CameraDescription> cameras;
-  const YaqdahApp({super.key, required this.cameras});
+  const Homescreen({super.key, required this.cameras});
 
   @override
-  State<YaqdahApp> createState() => _YaqdahAppState();
+  State<Homescreen> createState() => _HomescreenState();
 }
 
-class _YaqdahAppState extends State<YaqdahApp> {
+class _HomescreenState extends State<Homescreen> {
   bool _isAuthenticated = false;
   bool _isLoading = true;
   Map<String, dynamic> _currentUser = {};
@@ -35,31 +36,46 @@ class _YaqdahAppState extends State<YaqdahApp> {
   @override
   void initState() {
     super.initState();
-    _checkLoginStatus();
+    _initApp(); // ✅ Initialize Theme & User
   }
 
-  Future<void> _checkLoginStatus() async {
+  Future<void> _initApp() async {
+    // 1. Initialize Theme Service
+    await ThemeService.instance.init();
+
+    // 2. Check Login Status
     final prefs = await SharedPreferences.getInstance();
     final String? email = prefs.getString('user_email');
     if (email != null) {
       final user = await DatabaseService.instance.getUserByEmail(email);
       if (user != null) {
-        setState(() { _currentUser = user; _isAuthenticated = true; });
+        if (mounted) {
+          setState(() {
+            _currentUser = user;
+            _isAuthenticated = true;
+          });
+        }
       }
     }
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   void _login(Map<String, dynamic> user) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_email', user['email']);
-    setState(() { _isAuthenticated = true; _currentUser = user; });
+    setState(() {
+      _isAuthenticated = true;
+      _currentUser = user;
+    });
   }
 
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_email');
-    setState(() { _isAuthenticated = false; _currentUser = {}; });
+    setState(() {
+      _isAuthenticated = false;
+      _currentUser = {};
+    });
   }
 
   @override
@@ -67,33 +83,53 @@ class _YaqdahAppState extends State<YaqdahApp> {
     if (_isLoading) {
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
-        home: Scaffold(backgroundColor: Color(0xFF0F172A), body: Center(child: CircularProgressIndicator())),
+        home: Scaffold(
+          backgroundColor: Color(0xFF0F172A),
+          body: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0F172A),
-        primaryColor: const Color(0xFF2563EB),
-        colorScheme: const ColorScheme.dark(primary: Color(0xFF2563EB), surface: Color(0xFF1E293B)),
-      ),
-      home: _isAuthenticated
-          ? MainLayout(cameras: widget.cameras, onLogout: _logout, currentUser: _currentUser)
-          : LoginScreen(onLogin: _login),
+    // ✅ LISTENS TO THEME CHANGES
+    return ValueListenableBuilder<bool>(
+      valueListenable: ThemeService.instance.isDarkMode,
+      builder: (context, isDark, child) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Yaqdah',
+
+          // ✅ APPLIES THEMES FROM SERVICE
+          theme: ThemeService.instance.lightTheme,
+          darkTheme: ThemeService.instance.darkTheme,
+          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+
+          home: _isAuthenticated
+              ? MainLayout(
+                  cameras: widget.cameras,
+                  onLogout: _logout,
+                  currentUser: _currentUser,
+                )
+              : LoginScreen(onLogin: _login),
+        );
+      },
     );
   }
 }
 
 // ==========================================
-// 2. MAIN LAYOUT
+// 2. MAIN LAYOUT (Navigation & Screens)
 // ==========================================
 class MainLayout extends StatefulWidget {
   final List<CameraDescription> cameras;
   final VoidCallback onLogout;
   final Map<String, dynamic> currentUser;
 
-  const MainLayout({super.key, required this.cameras, required this.onLogout, required this.currentUser});
+  const MainLayout({
+    super.key,
+    required this.cameras,
+    required this.onLogout,
+    required this.currentUser,
+  });
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
@@ -101,7 +137,7 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
-  final GlobalKey<CameraFeedState> _cameraKey = GlobalKey(); // To switch cameras
+  final GlobalKey<CameraFeedState> _cameraKey = GlobalKey();
 
   // Logic State
   LatLng? _currentLocation;
@@ -129,10 +165,22 @@ class _MainLayoutState extends State<MainLayout> {
     setState(() {
       _status = newStatus;
       switch (newStatus) {
-        case "AWAKE": _drowsinessLevel = 15; _audio.stopAll(); break;
-        case "DISTRACTED": _drowsinessLevel = 45; _triggerGemini("DISTRACTED"); break;
-        case "DROWSY": _drowsinessLevel = 75; _triggerGemini("DROWSY"); break;
-        case "ASLEEP": _drowsinessLevel = 95; _triggerSOS(); break;
+        case "AWAKE":
+          _drowsinessLevel = 15;
+          _audio.stopAll();
+          break;
+        case "DISTRACTED":
+          _drowsinessLevel = 45;
+          _triggerGemini("DISTRACTED");
+          break;
+        case "DROWSY":
+          _drowsinessLevel = 75;
+          _triggerGemini("DROWSY");
+          break;
+        case "ASLEEP":
+          _drowsinessLevel = 95;
+          _triggerSOS();
+          break;
       }
     });
   }
@@ -160,7 +208,10 @@ class _MainLayoutState extends State<MainLayout> {
       setState(() => _isListening = true);
       await _audio.listen((text) async {
         if (!mounted) return;
-        setState(() { _isListening = false; _aiMessage = "Analyzing..."; });
+        setState(() {
+          _isListening = false;
+          _aiMessage = "Analyzing...";
+        });
         String reply = await _gemini.chatWithDriver(text);
         await _audio.speak(reply);
       });
@@ -169,11 +220,9 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // Screens List
     final List<Widget> screens = [
       Stack(
         children: [
-          // 1. Camera Feed (Background)
           CameraFeed(
             key: _cameraKey,
             cameras: widget.cameras,
@@ -181,7 +230,6 @@ class _MainLayoutState extends State<MainLayout> {
             showFeed: _showCameraFeed,
             onStatusChange: _handleStatusChange,
           ),
-          // 2. Dashboard UI (Foreground)
           DashboardUI(
             onLocationUpdate: (loc) => _currentLocation = loc,
             isMonitoring: _isMonitoring,
@@ -190,17 +238,21 @@ class _MainLayoutState extends State<MainLayout> {
             aiMessage: _aiMessage,
             showCameraFeed: _showCameraFeed,
             isListening: _isListening,
-            onToggleMonitoring: () => setState(() => _isMonitoring = !_isMonitoring),
-            onToggleCamera: () => setState(() => _showCameraFeed = !_showCameraFeed),
+            onToggleMonitoring: () =>
+                setState(() => _isMonitoring = !_isMonitoring),
+            onToggleCamera: () =>
+                setState(() => _showCameraFeed = !_showCameraFeed),
             onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
             onMicToggle: _toggleListening,
           ),
-          // 3. Mic Button Overlay
           Positioned(
-            bottom: 110, right: 20,
+            bottom: 110,
+            right: 20,
             child: FloatingActionButton(
               heroTag: "mic",
-              backgroundColor: _isListening ? Colors.red : Colors.blueAccent,
+              backgroundColor: _isListening
+                  ? Colors.red
+                  : Theme.of(context).primaryColor,
               onPressed: _toggleListening,
               child: Icon(_isListening ? Icons.mic_off : Icons.mic),
             ),
@@ -209,17 +261,45 @@ class _MainLayoutState extends State<MainLayout> {
       ),
       const ReportsScreen(),
       RestScreen(
-        onPlaceSelected: (dest) { /* Handle Nav */ }, // Simplified for brevity
-        getCurrentLocation: () => _currentLocation ?? const LatLng(32.8872, 13.1913),
+        onPlaceSelected: (dest) {
+          /* Handle Nav */
+        },
+        getCurrentLocation: () =>
+            _currentLocation ?? const LatLng(32.8872, 13.1913),
       ),
-      SettingsScreen(onLogout: widget.onLogout, currentUser: widget.currentUser),
+      SettingsScreen(
+        onLogout: widget.onLogout,
+        currentUser: widget.currentUser,
+      ),
     ];
+
+    // ✅ DYNAMIC COLORS FOR BOTTOM NAV BAR
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBarColor = isDark ? Colors.white.withOpacity(0.05) : Colors.white;
+    final navBarBorder = isDark
+        ? Colors.white.withOpacity(0.1)
+        : Colors.black.withOpacity(0.05);
 
     return Scaffold(
       extendBody: true,
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(colors: [Color(0xFF0F172A), Color(0xFF172554), Color(0xFF0F172A)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        // ✅ Gradient adapts to theme (Dark=Blue/Black, Light=Grey/White)
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isDark
+                ? [
+                    const Color(0xFF0F172A),
+                    const Color(0xFF172554),
+                    const Color(0xFF0F172A),
+                  ]
+                : [
+                    const Color(0xFFF1F5F9),
+                    const Color(0xFFE2E8F0),
+                    const Color(0xFFF1F5F9),
+                  ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
         ),
         child: IndexedStack(index: _currentIndex, children: screens),
       ),
@@ -231,7 +311,20 @@ class _MainLayoutState extends State<MainLayout> {
             filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: Container(
               height: 70,
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.white.withOpacity(0.1))),
+              decoration: BoxDecoration(
+                color: navBarColor,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: navBarBorder),
+                boxShadow: isDark
+                    ? []
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
@@ -250,19 +343,39 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _navItem(IconData icon, String label, int index) {
     bool isSelected = _currentIndex == index;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeColor = Theme.of(context).primaryColor;
+
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2563EB).withOpacity(0.2) : Colors.transparent,
+          color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, color: isSelected ? const Color(0xFF60A5FA) : Colors.grey, size: 24),
-          if (isSelected) Text(label, style: const TextStyle(color: Color(0xFF60A5FA), fontSize: 10, fontWeight: FontWeight.bold)),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected
+                  ? activeColor
+                  : (isDark ? Colors.grey : Colors.grey[400]),
+              size: 24,
+            ),
+            if (isSelected)
+              Text(
+                label,
+                style: TextStyle(
+                  color: activeColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

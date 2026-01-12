@@ -1,6 +1,4 @@
-import 'dart:io';
-import 'dart:typed_data'; // Needed for ByteData
-import 'dart:ui'; // Needed for ImageFormat
+import 'dart:io'; // Needed for ByteData
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart'; // For WriteBuffer
 import 'package:flutter/material.dart';
@@ -29,7 +27,10 @@ class CameraFeed extends StatefulWidget {
 class CameraFeedState extends State<CameraFeed> {
   CameraController? _cameraController;
   final FaceDetector _faceDetector = FaceDetector(
-      options: FaceDetectorOptions(enableClassification: true, enableTracking: true)
+    options: FaceDetectorOptions(
+      enableClassification: true,
+      enableTracking: true,
+    ),
   );
   final DrowsinessLogic _logic = DrowsinessLogic();
   bool _isProcessing = false;
@@ -54,7 +55,9 @@ class CameraFeedState extends State<CameraFeed> {
       widget.cameras[index],
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+      imageFormatGroup: Platform.isAndroid
+          ? ImageFormatGroup.nv21
+          : ImageFormatGroup.bgra8888,
     );
 
     try {
@@ -100,8 +103,12 @@ class CameraFeedState extends State<CameraFeed> {
     }
     final bytes = allBytes.done().buffer.asUint8List();
     final imageSize = Size(image.width.toDouble(), image.height.toDouble());
-    final imageRotation = _rotationIntToImageRotation(_cameraController!.description.sensorOrientation);
-    final inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw);
+    final imageRotation = _rotationIntToImageRotation(
+      _cameraController!.description.sensorOrientation,
+    );
+    final inputImageFormat = InputImageFormatValue.fromRawValue(
+      image.format.raw,
+    );
 
     if (inputImageFormat == null) return null;
 
@@ -118,10 +125,14 @@ class CameraFeedState extends State<CameraFeed> {
 
   InputImageRotation _rotationIntToImageRotation(int rotation) {
     switch (rotation) {
-      case 90: return InputImageRotation.rotation90deg;
-      case 180: return InputImageRotation.rotation180deg;
-      case 270: return InputImageRotation.rotation270deg;
-      default: return InputImageRotation.rotation0deg;
+      case 90:
+        return InputImageRotation.rotation90deg;
+      case 180:
+        return InputImageRotation.rotation180deg;
+      case 270:
+        return InputImageRotation.rotation270deg;
+      default:
+        return InputImageRotation.rotation0deg;
     }
   }
 
@@ -139,7 +150,9 @@ class CameraFeedState extends State<CameraFeed> {
     }
 
     return Positioned(
-      top: 0, left: 0, right: 0,
+      top: 0,
+      left: 0,
+      right: 0,
       height: widget.showFeed ? 300 : 1,
       child: Opacity(
         opacity: widget.showFeed ? 1.0 : 0.0,
@@ -150,7 +163,9 @@ class CameraFeedState extends State<CameraFeed> {
               fit: BoxFit.cover,
               child: SizedBox(
                 width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.width * _cameraController!.value.aspectRatio,
+                height:
+                    MediaQuery.of(context).size.width *
+                    _cameraController!.value.aspectRatio,
                 child: CameraPreview(_cameraController!),
               ),
             ),

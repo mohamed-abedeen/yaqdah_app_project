@@ -16,13 +16,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF0F172A), Color(0xFF172554), Color(0xFF0F172A)],
+            // ✅ Uses Theme Colors for Gradient
+            colors: isDark
+                ? [
+                    theme.colorScheme.background,
+                    theme.colorScheme.secondary,
+                    theme.colorScheme.background,
+                  ]
+                : [
+                    theme.colorScheme.background,
+                    Colors.white,
+                    theme.colorScheme.background,
+                  ],
           ),
         ),
         child: SafeArea(
@@ -35,21 +49,36 @@ class _LoginScreenState extends State<LoginScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
+                    color: theme.primaryColor.withOpacity(0.1),
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                    border: Border.all(
+                      color: theme.primaryColor.withOpacity(0.3),
+                    ),
                   ),
-                  child: const Icon(Icons.monitor_heart_outlined, size: 40, color: Colors.blueAccent),
+                  child: Icon(
+                    Icons.monitor_heart_outlined,
+                    size: 40,
+                    color: theme.primaryColor,
+                  ),
                 ),
                 const SizedBox(height: 12),
-                const Text("yaqdah", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
-                const Text("Your Safety, Our Priority", style: TextStyle(color: Colors.grey)),
+                Text(
+                  "yaqdah",
+                  style: theme.textTheme.titleLarge?.copyWith(fontSize: 28),
+                ),
+                Text(
+                  "Your Safety, Our Priority",
+                  style: theme.textTheme.bodySmall,
+                ),
                 const SizedBox(height: 30),
 
                 // Toggle Button
                 Container(
                   padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(16)),
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Row(
                     children: [
                       Expanded(child: _authToggleBtn("Login", true)),
@@ -59,7 +88,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             Navigator.pushReplacement(
                               context,
                               PageRouteBuilder(
-                                pageBuilder: (context, anim1, anim2) => SignupScreen(onLogin: widget.onLogin),
+                                pageBuilder: (context, anim1, anim2) =>
+                                    SignupScreen(onLogin: widget.onLogin),
                                 transitionDuration: Duration.zero,
                                 reverseTransitionDuration: Duration.zero,
                               ),
@@ -77,18 +107,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("Step 1 of 3", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                    const Text("33%", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      "Step 1 of 3",
+                      style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                    ),
+                    Text(
+                      "33%",
+                      style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: const LinearProgressIndicator(
+                  child: LinearProgressIndicator(
                     value: 0.33,
                     minHeight: 6,
-                    color: Colors.blueAccent,
-                    backgroundColor: Color(0xFF1E293B),
+                    color: theme.primaryColor,
+                    backgroundColor: theme.cardColor,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -98,21 +134,40 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B).withOpacity(0.6),
+                      color: theme.cardColor.withOpacity(0.6),
                       borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                      border: Border.all(color: theme.dividerColor),
                     ),
                     child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text("Welcome Back", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-                          const Text("Sign in to continue your journey", style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          Text(
+                            "Welcome Back",
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontSize: 20,
+                            ),
+                          ),
+                          Text(
+                            "Sign in to continue your journey",
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 13,
+                            ),
+                          ),
                           const SizedBox(height: 24),
 
-                          _buildInput("Email Address", Icons.email_outlined, _emailController),
+                          _buildInput(
+                            "Email Address",
+                            Icons.email_outlined,
+                            _emailController,
+                          ),
                           const SizedBox(height: 16),
-                          _buildInput("Password", Icons.lock_outline, _passController, isPassword: true),
+                          _buildInput(
+                            "Password",
+                            Icons.lock_outline,
+                            _passController,
+                            isPassword: true,
+                          ),
 
                           const SizedBox(height: 16),
                           Row(
@@ -121,66 +176,83 @@ class _LoginScreenState extends State<LoginScreen> {
                                 scale: 0.9,
                                 child: Checkbox(
                                   value: false,
-                                  onChanged: (v){},
-                                  fillColor: MaterialStateProperty.all(const Color(0xFF1E293B)),
-                                  side: const BorderSide(color: Colors.grey),
+                                  onChanged: (v) {},
+                                  fillColor: MaterialStateProperty.all(
+                                    theme.cardColor,
+                                  ),
+                                  side: BorderSide(color: theme.disabledColor),
                                 ),
                               ),
-                              const Text("Remember me", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                              Text(
+                                "Remember me",
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 12,
+                                ),
+                              ),
                               const Spacer(),
-                              TextButton(onPressed: () {}, child: const Text("Forgot Password?", style: TextStyle(color: Colors.blueAccent, fontSize: 12))),
+                              TextButton(
+                                onPressed: () {},
+                                child: Text(
+                                  "Forgot Password?",
+                                  style: TextStyle(
+                                    color: theme.primaryColor,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
 
                           const SizedBox(height: 30),
 
-                          // --- SIGN IN BUTTON (UPDATED) ---
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2563EB),
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                elevation: 8,
-                                shadowColor: Colors.blue.withOpacity(0.4),
-                              ),
                               onPressed: () async {
-                                final user = await DatabaseService.instance.loginUser(
-                                    _emailController.text,
-                                    _passController.text
-                                );
+                                final user = await DatabaseService.instance
+                                    .loginUser(
+                                      _emailController.text,
+                                      _passController.text,
+                                    );
 
                                 if (user != null) {
-                                  // 1. Tell App we are logged in
                                   widget.onLogin(user);
-
-                                  // 2. ✅ CRITICAL FIX: Clear the screen stack!
-                                  // This forces the Login/Signup screens to close and reveals the Home Screen.
-
-                                    Navigator.of(context).popUntil((route) => route.isFirst);
-
+                                  Navigator.of(
+                                    context,
+                                  ).popUntil((route) => route.isFirst);
                                 } else {
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text("Invalid email or password"), backgroundColor: Colors.red),
+                                      const SnackBar(
+                                        content: Text(
+                                          "Invalid email or password",
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
                                     );
                                   }
                                 }
                               },
-                              child: const Text("Sign In", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                              child: const Text(
+                                "Sign In",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ),
-                          // -------------------------------
 
                           const SizedBox(height: 20),
-                          const Center(
+                          Center(
                             child: Text(
                               "By continuing, you agree to our Terms of Service and Privacy Policy",
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey, fontSize: 10),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 10,
+                              ),
                             ),
-                          )
+                          ),
                         ],
                       ),
                     ),
@@ -195,28 +267,36 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _authToggleBtn(String text, bool isActive) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(color: isActive ? const Color(0xFF2563EB) : Colors.transparent, borderRadius: BorderRadius.circular(12)),
-      child: Center(child: Text(text, style: TextStyle(color: isActive ? Colors.white : Colors.grey, fontWeight: FontWeight.bold))),
+      decoration: BoxDecoration(
+        color: isActive ? theme.primaryColor : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isActive ? Colors.white : theme.textTheme.bodySmall?.color,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildInput(String hint, IconData icon, TextEditingController controller, {bool isPassword = false}) {
+  Widget _buildInput(
+    String hint,
+    IconData icon,
+    TextEditingController controller, {
+    bool isPassword = false,
+  }) {
     return TextField(
       controller: controller,
       obscureText: isPassword,
-      style: const TextStyle(color: Colors.white),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
-        prefixIcon: Icon(icon, color: Colors.grey, size: 20),
-        filled: true,
-        fillColor: const Color(0xFF0F172A),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.white.withOpacity(0.05))),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16),
-      ),
+      // Input style is now handled globally by ThemeService!
+      decoration: InputDecoration(hintText: hint, prefixIcon: Icon(icon)),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -7,6 +8,15 @@ class DatabaseService {
   static Database? _database;
 
   DatabaseService._init();
+  Future<int> updateUser(String email, String newName, String newPhone) async {
+    final db = await instance.database;
+    return await db.update(
+      'users',
+      {'fullName': newName, 'phone': newPhone},
+      where: 'email = ?',
+      whereArgs: [email],
+    );
+  }
 
   // Get the database (open it if it doesn't exist)
   Future<Database> get database async {
@@ -53,22 +63,27 @@ class DatabaseService {
   // ==========================================
 
   // Sign Up
-  Future<bool> registerUser(String email, String password, String name, String phone) async {
+  Future<bool> registerUser(
+    String email,
+    String password,
+    String name,
+    String phone,
+  ) async {
     final db = await instance.database;
     try {
-      print("Attempting to register: $email"); // 🔍 DEBUG PRINT
+      debugPrint("Attempting to register: $email"); // 🔍 DEBUG PRINT
 
       int id = await db.insert('users', {
         'email': email,
         'password': password,
         'fullName': name,
-        'phone': phone
+        'phone': phone,
       });
 
-      print("User Registered! ID: $id"); // 🔍 DEBUG PRINT
+      debugPrint("User Registered! ID: $id"); // 🔍 DEBUG PRINT
       return true;
     } catch (e) {
-      print("❌ REGISTRATION ERROR: $e"); // 🔍 READ THIS IN CONSOLE
+      debugPrint("❌ REGISTRATION ERROR: $e"); // 🔍 READ THIS IN CONSOLE
       return false;
     }
   }
@@ -76,7 +91,9 @@ class DatabaseService {
   // 2. UPDATED LOGIN METHOD (With Debug Prints)
   Future<Map<String, dynamic>?> loginUser(String email, String password) async {
     final db = await instance.database;
-    print("Attempting login for: $email with pass: $password"); // 🔍 DEBUG PRINT
+    debugPrint(
+      "Attempting login for: $email with pass: $password",
+    ); // 🔍 DEBUG PRINT
 
     try {
       final maps = await db.query(
@@ -86,19 +103,21 @@ class DatabaseService {
       );
 
       if (maps.isNotEmpty) {
-        print("Login Successful! User found: ${maps.first}"); // 🔍 DEBUG PRINT
+        debugPrint(
+          "Login Successful! User found: ${maps.first}",
+        ); // 🔍 DEBUG PRINT
         return maps.first;
       } else {
-        print("❌ Login Failed: User not found in DB"); // 🔍 DEBUG PRINT
+        debugPrint("❌ Login Failed: User not found in DB"); // 🔍 DEBUG PRINT
 
         // OPTIONAL: Print all users to see who IS in there
         final allUsers = await db.query('users');
-        print("DUMP: Current Users in DB: $allUsers");
+        debugPrint("DUMP: Current Users in DB: $allUsers");
 
         return null;
       }
     } catch (e) {
-      print("❌ SQL ERROR: $e");
+      debugPrint("❌ SQL ERROR: $e");
       return null;
     }
   }
@@ -116,7 +135,7 @@ class DatabaseService {
       'distance': distance,
       'status': status, // e.g., "Safe Trip" or "Drowsiness Alert"
     });
-    print("Trip Saved to SQLite!");
+    debugPrint("Trip Saved to SQLite!");
   }
 
   // Get all trips (For the Reports Screen)
@@ -146,9 +165,10 @@ class DatabaseService {
     return {
       'totalTrips': trips.length,
       'totalKm': totalKm,
-      'totalAlerts': alerts
+      'totalAlerts': alerts,
     };
   }
+
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
     final db = await instance.database;
     final maps = await db.query(
@@ -164,5 +184,3 @@ class DatabaseService {
     }
   }
 }
-
-

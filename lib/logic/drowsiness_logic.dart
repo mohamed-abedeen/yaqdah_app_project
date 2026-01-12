@@ -1,7 +1,10 @@
+// ignore_for_file: constant_identifier_names
+
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 class DrowsinessLogic {
   // --- THRESHOLDS ---
+  // ignore: constant_identifier
   static const double _EYE_OPEN_THRESHOLD = 0.4;
   static const double _HEAD_YAW_THRESHOLD = 25.0;
   static const double _HEAD_PITCH_THRESHOLD = 20.0;

@@ -40,11 +40,13 @@ class LocationSmsService {
 
       if (position != null) {
         locationText = "${position.latitude}, ${position.longitude}";
-        mapsLink = "https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}";
+        mapsLink =
+            "https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}";
       }
 
       // B. Create Message
-      String message = "EMERGENCY: The driver using Yaqdah has fallen asleep while driving! \n"
+      String message =
+          "EMERGENCY: The driver using Yaqdah has fallen asleep while driving! \n"
           "Location: $locationText \n"
           "Map: $mapsLink";
 
@@ -53,9 +55,7 @@ class LocationSmsService {
       final Uri smsLaunchUri = Uri(
         scheme: 'sms',
         path: emergencyNumber,
-        queryParameters: <String, String>{
-          'body': message,
-        },
+        queryParameters: <String, String>{'body': message},
       );
 
       // Force external application launch
@@ -72,7 +72,6 @@ class LocationSmsService {
           }
         }
       }
-
     } catch (e) {
       if (kDebugMode) {
         print("Emergency Service Error: $e");
