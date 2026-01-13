@@ -2,9 +2,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:ui'; // For BackdropFilter
+import 'dart:ui';
 
-// ✅ IMPORTS
 import 'rest_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
@@ -15,11 +14,8 @@ import '../services/database_service.dart';
 import '../services/audio_service.dart';
 import '../services/gemini_service.dart';
 import '../services/location_sms_service.dart';
-import '../services/theme_service.dart'; // ✅ NEW IMPORT
+import '../services/theme_service.dart';
 
-// ==========================================
-// 1. ROOT WIDGET (Handles Theme & Login)
-// ==========================================
 class Homescreen extends StatefulWidget {
   final List<CameraDescription> cameras;
   const Homescreen({super.key, required this.cameras});
@@ -36,14 +32,11 @@ class _HomescreenState extends State<Homescreen> {
   @override
   void initState() {
     super.initState();
-    _initApp(); // ✅ Initialize Theme & User
+    _initApp();
   }
 
   Future<void> _initApp() async {
-    // 1. Initialize Theme Service
     await ThemeService.instance.init();
-
-    // 2. Check Login Status
     final prefs = await SharedPreferences.getInstance();
     final String? email = prefs.getString('user_email');
     if (email != null) {
@@ -61,8 +54,7 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   void _login(Map<String, dynamic> user) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('user_email', user['email']);
+    // Only set state here; persistence handled in LoginScreen if needed
     setState(() {
       _isAuthenticated = true;
       _currentUser = user;
@@ -90,19 +82,15 @@ class _HomescreenState extends State<Homescreen> {
       );
     }
 
-    // ✅ LISTENS TO THEME CHANGES
     return ValueListenableBuilder<bool>(
       valueListenable: ThemeService.instance.isDarkMode,
       builder: (context, isDark, child) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'Yaqdah',
-
-          // ✅ APPLIES THEMES FROM SERVICE
           theme: ThemeService.instance.lightTheme,
           darkTheme: ThemeService.instance.darkTheme,
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-
           home: _isAuthenticated
               ? MainLayout(
                   cameras: widget.cameras,
@@ -116,9 +104,6 @@ class _HomescreenState extends State<Homescreen> {
   }
 }
 
-// ==========================================
-// 2. MAIN LAYOUT (Navigation & Screens)
-// ==========================================
 class MainLayout extends StatefulWidget {
   final List<CameraDescription> cameras;
   final VoidCallback onLogout;
@@ -148,6 +133,9 @@ class _MainLayoutState extends State<MainLayout> {
   String _aiMessage = "Press Start";
   bool _isListening = false;
 
+  // ✅ NEW: Camera Name State
+  String _currentCameraName = "Camera";
+
   final AudioService _audio = AudioService();
   final GeminiService _gemini = GeminiService();
   final LocationSmsService _smsService = LocationSmsService();
@@ -157,9 +145,26 @@ class _MainLayoutState extends State<MainLayout> {
   void initState() {
     super.initState();
     _audio.init();
+    // Initialize label
+    if (widget.cameras.isNotEmpty) _updateCameraName(0);
   }
 
-  // --- LOGIC HANDLERS ---
+  // ✅ HELPER: Generate Camera Name
+  void _updateCameraName(int index) {
+    if (widget.cameras.isEmpty) return;
+    final cam = widget.cameras[index];
+    setState(() {
+      if (cam.lensDirection == CameraLensDirection.front) {
+        _currentCameraName = "Front Cam";
+      } else if (cam.lensDirection == CameraLensDirection.back) {
+        // Distinguish multiple back cameras if present
+        _currentCameraName = "Back Cam ${index + 1}";
+      } else {
+        _currentCameraName = "Ext Cam";
+      }
+    });
+  }
+
   void _handleStatusChange(String newStatus) {
     if (!mounted) return;
     setState(() {
@@ -219,6 +224,12 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   @override
+  void dispose() {
+    _audio.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final List<Widget> screens = [
       Stack(
@@ -229,6 +240,8 @@ class _MainLayoutState extends State<MainLayout> {
             isMonitoring: _isMonitoring,
             showFeed: _showCameraFeed,
             onStatusChange: _handleStatusChange,
+            // ✅ LINKED: Notify home screen when camera changes
+            onCameraChanged: _updateCameraName,
           ),
           DashboardUI(
             onLocationUpdate: (loc) => _currentLocation = loc,
@@ -238,6 +251,9 @@ class _MainLayoutState extends State<MainLayout> {
             aiMessage: _aiMessage,
             showCameraFeed: _showCameraFeed,
             isListening: _isListening,
+            // ✅ LINKED: Pass label to Dashboard
+            currentCameraName: _currentCameraName,
+
             onToggleMonitoring: () =>
                 setState(() => _isMonitoring = !_isMonitoring),
             onToggleCamera: () =>
@@ -261,9 +277,7 @@ class _MainLayoutState extends State<MainLayout> {
       ),
       const ReportsScreen(),
       RestScreen(
-        onPlaceSelected: (dest) {
-          /* Handle Nav */
-        },
+        onPlaceSelected: (dest) {},
         getCurrentLocation: () =>
             _currentLocation ?? const LatLng(32.8872, 13.1913),
       ),
@@ -273,7 +287,6 @@ class _MainLayoutState extends State<MainLayout> {
       ),
     ];
 
-    // ✅ DYNAMIC COLORS FOR BOTTOM NAV BAR
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final navBarColor = isDark ? Colors.white.withOpacity(0.05) : Colors.white;
     final navBarBorder = isDark
@@ -283,7 +296,6 @@ class _MainLayoutState extends State<MainLayout> {
     return Scaffold(
       extendBody: true,
       body: Container(
-        // ✅ Gradient adapts to theme (Dark=Blue/Black, Light=Grey/White)
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: isDark
@@ -315,22 +327,13 @@ class _MainLayoutState extends State<MainLayout> {
                 color: navBarColor,
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(color: navBarBorder),
-                boxShadow: isDark
-                    ? []
-                    : [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _navItem(Icons.home_rounded, "Home", 0),
-                  _navItem(Icons.description_outlined, "Reports", 1),
-                  _navItem(Icons.coffee_outlined, "Rest", 2),
+                  _navItem(Icons.coffee_outlined, "Rest", 1),
+                  _navItem(Icons.description_outlined, "Reports", 2),
                   _navItem(Icons.person_outline, "Account", 3),
                 ],
               ),

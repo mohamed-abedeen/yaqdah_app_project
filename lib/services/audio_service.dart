@@ -17,9 +17,6 @@ class AudioService {
       await _flutterTts.setPitch(1.0);
       await _flutterTts.setSpeechRate(0.5);
 
-      var isLanguageAvailable = await _flutterTts.isLanguageAvailable("ar");
-      print("TTS: Arabic language available: $isLanguageAvailable");
-
       if (Platform.isIOS) {
         await _flutterTts.setIosAudioCategory(
           IosTextToSpeechAudioCategory.playback,
@@ -46,7 +43,6 @@ class AudioService {
   // --- TTS (Speaking) ---
   Future<void> speak(String text) async {
     if (text.isNotEmpty) {
-      print("TTS: Attempting to speak: $text");
       await _flutterTts.stop();
       var result = await _flutterTts.speak(text);
       if (result == 1) {
@@ -98,11 +94,16 @@ class AudioService {
   }
 
   Future<void> stopAll() async {
-    // Explicitly stop and release the loop mode
     await _audioPlayer.stop();
-    await _audioPlayer.setReleaseMode(ReleaseMode.stop); // <--- ADDED: Reset release mode
-
+    await _audioPlayer.setReleaseMode(ReleaseMode.stop); 
     await _flutterTts.stop();
     await stopListening();
+  }
+
+  // ✅ FIXED: Added this missing method
+  void dispose() {
+    _audioPlayer.dispose();
+    _flutterTts.stop();
+    _speechToText.cancel();
   }
 }

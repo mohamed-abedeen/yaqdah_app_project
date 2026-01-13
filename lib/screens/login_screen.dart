@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // ✅ Import this
 import '../services/database_service.dart';
 import 'signup_screen.dart';
 
@@ -14,6 +15,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passController = TextEditingController();
 
+  // ✅ 1. Add state variable
+  bool _rememberMe = false;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -25,7 +29,6 @@ class _LoginScreenState extends State<LoginScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            // ✅ Uses Theme Colors for Gradient
             colors: isDark
                 ? [
                     theme.colorScheme.background,
@@ -175,8 +178,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               Transform.scale(
                                 scale: 0.9,
                                 child: Checkbox(
-                                  value: false,
-                                  onChanged: (v) {},
+                                  // ✅ 2. Connect variable
+                                  value: _rememberMe,
+                                  onChanged: (v) {
+                                    setState(() => _rememberMe = v!);
+                                  },
                                   fillColor: MaterialStateProperty.all(
                                     theme.cardColor,
                                   ),
@@ -216,10 +222,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                     );
 
                                 if (user != null) {
+                                  // ✅ 3. Handle Logic: Save only if checked
+                                  if (_rememberMe) {
+                                    final prefs =
+                                        await SharedPreferences.getInstance();
+                                    await prefs.setString(
+                                      'user_email',
+                                      user['email'],
+                                    );
+                                  }
+
                                   widget.onLogin(user);
-                                  Navigator.of(
-                                    context,
-                                  ).popUntil((route) => route.isFirst);
+
+                                  // Don't need Navigator.popUntil here if Home is root, but keeping it safe
+                                  // Navigator.of(context).popUntil((route) => route.isFirst);
                                 } else {
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -295,7 +311,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return TextField(
       controller: controller,
       obscureText: isPassword,
-      // Input style is now handled globally by ThemeService!
       decoration: InputDecoration(hintText: hint, prefixIcon: Icon(icon)),
     );
   }

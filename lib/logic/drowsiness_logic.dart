@@ -1,80 +1,70 @@
-// ignore_for_file: constant_identifier_names
-
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+
+enum DriverState { awake, drowsy, asleep, distracted }
 
 class DrowsinessLogic {
   // --- THRESHOLDS ---
-  // ignore: constant_identifier
-  static const double _EYE_OPEN_THRESHOLD = 0.4;
-  static const double _HEAD_YAW_THRESHOLD = 25.0;
-  static const double _HEAD_PITCH_THRESHOLD = 20.0;
+  static const double _eyeOpenThreshold = 0.5;
+  static const double _headYawThreshold = 25.0;
+  static const double _headPitchThreshold = 20.0;
 
-  // --- SETTINGS ---
-  static const int _SLEEP_FRAMES = 50;
-  static const int _TIME_THRESHOLD_MS = 1500; // 1.5 Seconds (1500 ms)
+  // --- TIME (milliseconds) ---
+  static const int _timeToDrowsyMs = 900;
+  static const int _timeToSleepMs = 1500;
 
-  // --- COUNTERS & TIMERS ---
-  int _closedFrames = 0;
+  DateTime? _eyesClosedStart;
+  DateTime? _distractedStart;
 
-  // We use timestamps to measure exactly 1.5 seconds regardless of FPS
-  DateTime? _distractedStartTime;
-  DateTime? _drowsyStartTime;
+  DriverState checkFace(Face face) {
+    final now = DateTime.now();
 
-  String checkFace(Face face) {
-    // 1. ANALYZE FACE DATA
-    // Distraction (Head Pose)
-    bool isDistracted = false;
-    if ((face.headEulerAngleY ?? 0).abs() > _HEAD_YAW_THRESHOLD) isDistracted = true;
-    if ((face.headEulerAngleX ?? 0).abs() > _HEAD_PITCH_THRESHOLD) isDistracted = true;
+    // --- DISTRACTION ---
+    final bool isDistracted =
+        (face.headEulerAngleY?.abs() ?? 0) > _headYawThreshold ||
+        (face.headEulerAngleX?.abs() ?? 0) > _headPitchThreshold;
 
-    // Eyes Closed
-    bool isLeftEyeClosed = (face.leftEyeOpenProbability ?? 1.0) < _EYE_OPEN_THRESHOLD;
-    bool isRightEyeClosed = (face.rightEyeOpenProbability ?? 1.0) < _EYE_OPEN_THRESHOLD;
-    bool isEyesClosed = isLeftEyeClosed && isRightEyeClosed;
+    // --- EYES ---
+    final double leftEye = face.leftEyeOpenProbability ?? 1.0;
+    final double rightEye = face.rightEyeOpenProbability ?? 1.0;
 
-    // 2. LOGIC PROCESSING
+    final bool eyesClosed =
+        leftEye < _eyeOpenThreshold && rightEye < _eyeOpenThreshold;
 
-    // --- CASE A: EYES CLOSED (Sleep/Drowsy) ---
-    if (isEyesClosed) {
-      _closedFrames++;
-      _distractedStartTime = null; // Reset distraction if eyes are closed
+    // --- EYES CLOSED LOGIC (PRIORITY) ---
+    if (eyesClosed) {
+      _distractedStart = null;
+      _eyesClosedStart ??= now;
 
-      // Start Drowsy Timer if not started
-      _drowsyStartTime ??= DateTime.now();
+      final closedMs = now.difference(_eyesClosedStart!).inMilliseconds;
 
-      // PRIORITY 1: DEEP SLEEP (Frame-based for safety backup)
-      if (_closedFrames > _SLEEP_FRAMES) {
-        return "ASLEEP";
+      if (closedMs >= _timeToSleepMs) {
+        return DriverState.asleep;
       }
 
-      // PRIORITY 2: DROWSY (Time-based: 2 Seconds)
-      if (DateTime.now().difference(_drowsyStartTime!).inMilliseconds > _TIME_THRESHOLD_MS) {
-        return "DROWSY";
+      if (closedMs >= _timeToDrowsyMs) {
+        return DriverState.drowsy;
       }
 
-      // If closed but not for 2 seconds yet, we consider them still AWAKE (blinking)
-      return "AWAKE";
-    }
-    else {
-      // Eyes are OPEN
-      _closedFrames = 0;
-      _drowsyStartTime = null; // Reset drowsy timer
-
-      // --- CASE B: DISTRACTION (Looking Away) ---
-      if (isDistracted) {
-        // Start Timer if not started
-        _distractedStartTime ??= DateTime.now();
-
-        // Check if 2 seconds have passed
-        if (DateTime.now().difference(_distractedStartTime!).inMilliseconds > _TIME_THRESHOLD_MS) {
-          return "DISTRACTED";
-        }
-      } else {
-        // Looking straight ahead
-        _distractedStartTime = null; // Reset timer
-      }
+      return DriverState.awake; // blink
     }
 
-    return "AWAKE";
+    // --- EYES OPEN ---
+    _eyesClosedStart = null;
+
+    if (isDistracted) {
+      _distractedStart ??= now;
+
+      final distractedMs = now.difference(_distractedStart!).inMilliseconds;
+
+      if (distractedMs >= _timeToDrowsyMs) {
+        return DriverState.distracted;
+      }
+    } else {
+      _distractedStart = null;
+    }
+
+    return DriverState.awake;
   }
+
+  void dispose() {}
 }

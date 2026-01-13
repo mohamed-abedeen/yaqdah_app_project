@@ -1,70 +1,70 @@
-import 'dart:io'; // Needed for ByteData
+import 'dart:io'; // Needed for Platform check
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart'; // For WriteBuffer
+import 'package:flutter/foundation.dart'; // Needed for WriteBuffer
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // <--- FIXED: Needed for DeviceOrientation
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:permission_handler/permission_handler.dart';
-import '../logic/drowsiness_logic.dart';
 
 class CameraFeed extends StatefulWidget {
   final List<CameraDescription> cameras;
   final bool isMonitoring;
   final bool showFeed;
-  final Function(String status) onStatusChange;
+  final Function(String) onStatusChange;
+  final Function(int) onCameraChanged;
 
   const CameraFeed({
-    super.key,
+    Key? key,
     required this.cameras,
     required this.isMonitoring,
     required this.showFeed,
     required this.onStatusChange,
-  });
+    required this.onCameraChanged,
+  }) : super(key: key);
 
   @override
   State<CameraFeed> createState() => CameraFeedState();
 }
 
 class CameraFeedState extends State<CameraFeed> {
-  CameraController? _cameraController;
+  CameraController? _controller;
+  int _selectedCameraIndex = 0;
+  bool _isProcessing = false;
+
+  // Face Detector
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableClassification: true,
+      enableClassification: true, // Needed for eyes
       enableTracking: true,
+      performanceMode: FaceDetectorMode.accurate,
     ),
   );
-  final DrowsinessLogic _logic = DrowsinessLogic();
-  bool _isProcessing = false;
-  int _selectedCameraIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _initCamera(0);
+    _initializeCamera();
   }
 
-  Future<void> _initCamera(int index) async {
-    await [Permission.camera].request();
+  void _initializeCamera() async {
     if (widget.cameras.isEmpty) return;
 
-    if (index >= widget.cameras.length) index = 0;
-    _selectedCameraIndex = index;
-
-    if (_cameraController != null) await _cameraController!.dispose();
-
-    _cameraController = CameraController(
-      widget.cameras[index],
-      ResolutionPreset.medium,
+    _controller = CameraController(
+      widget.cameras[_selectedCameraIndex],
+      ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup.nv21
-          : ImageFormatGroup.bgra8888,
+          ? ImageFormatGroup
+                .nv21 // Android standard for ML Kit
+          : ImageFormatGroup.bgra8888, // iOS standard
     );
 
     try {
-      await _cameraController!.initialize();
-      if (!mounted) return;
-      _cameraController!.startImageStream(_processImage);
-      setState(() {});
+      await _controller!.initialize();
+      if (mounted) {
+        setState(() {});
+        widget.onCameraChanged(_selectedCameraIndex);
+        _controller!.startImageStream(_processImage);
+      }
     } catch (e) {
       print("Camera Error: $e");
     }
@@ -72,106 +72,131 @@ class CameraFeedState extends State<CameraFeed> {
 
   void switchCamera() {
     if (widget.cameras.length < 2) return;
-    _initCamera(_selectedCameraIndex + 1);
+    setState(() {
+      _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
+    });
+    _initializeCamera();
   }
 
+  // --- AI PROCESSING LOOP ---
   void _processImage(CameraImage image) async {
     if (_isProcessing || !widget.isMonitoring) return;
     _isProcessing = true;
+
     try {
-      final inputImage = _convertInputImage(image);
-      if (inputImage == null) {
-        _isProcessing = false;
-        return;
-      }
+      final inputImage = _inputImageFromCameraImage(image);
+      if (inputImage == null) return;
+
       final faces = await _faceDetector.processImage(inputImage);
-      if (faces.isNotEmpty) {
-        String newStatus = _logic.checkFace(faces.first);
-        widget.onStatusChange(newStatus);
+
+      if (faces.isEmpty) {
+        widget.onStatusChange("DISTRACTED");
+      } else {
+        final face = faces.first;
+
+        double? leftEyeOpen = face.leftEyeOpenProbability;
+        double? rightEyeOpen = face.rightEyeOpenProbability;
+
+        // Threshold: 0.2 means 20% open (mostly closed)
+        bool isAsleep =
+            (leftEyeOpen != null && leftEyeOpen < 0.2) &&
+            (rightEyeOpen != null && rightEyeOpen < 0.2);
+
+        if (isAsleep) {
+          widget.onStatusChange("ASLEEP");
+        } else {
+          widget.onStatusChange("AWAKE");
+        }
       }
     } catch (e) {
-      print("Detection Error: $e");
+      print("Error processing face: $e");
     } finally {
       _isProcessing = false;
     }
   }
 
-  InputImage? _convertInputImage(CameraImage image) {
+  // --- NEW CONVERTER FOR LATEST ML KIT ---
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    final camera = widget.cameras[_selectedCameraIndex];
+    final sensorOrientation = camera.sensorOrientation;
+
+    InputImageRotation? rotation;
+    if (Platform.isIOS) {
+      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    } else if (Platform.isAndroid) {
+      var rotationCompensation =
+          _orientations[_controller!.value.deviceOrientation];
+      if (rotationCompensation == null) return null;
+      if (camera.lensDirection == CameraLensDirection.front) {
+        // front-facing
+        rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
+      } else {
+        // back-facing
+        rotationCompensation =
+            (sensorOrientation - rotationCompensation + 360) % 360;
+      }
+      rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
+    }
+
+    if (rotation == null) return null;
+
+    // get image format
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    if (format == null ||
+        (Platform.isAndroid && format != InputImageFormat.nv21) ||
+        (Platform.isIOS && format != InputImageFormat.bgra8888)) {
+      // Only return null if format is totally unknown, otherwise try processing
+      if (format == null) return null;
+    }
+
+    // Since format is nullable in recent versions, we handle it safely or assume nv21 for Android
+    final validFormat = format ?? InputImageFormat.nv21;
+
+    // Compose Metadata
+    // Note: 'bytesPerRow' is usually the first plane's bytesPerRow on Android/iOS for these formats
+    if (image.planes.isEmpty) return null;
+
+    final plane = image.planes.first;
+
+    // Concatenate planes
     final WriteBuffer allBytes = WriteBuffer();
     for (final Plane plane in image.planes) {
       allBytes.putUint8List(plane.bytes);
     }
     final bytes = allBytes.done().buffer.asUint8List();
-    final imageSize = Size(image.width.toDouble(), image.height.toDouble());
-    final imageRotation = _rotationIntToImageRotation(
-      _cameraController!.description.sensorOrientation,
-    );
-    final inputImageFormat = InputImageFormatValue.fromRawValue(
-      image.format.raw,
+
+    final metadata = InputImageMetadata(
+      size: Size(image.width.toDouble(), image.height.toDouble()),
+      rotation: rotation,
+      format: validFormat,
+      bytesPerRow: plane.bytesPerRow,
     );
 
-    if (inputImageFormat == null) return null;
-
-    return InputImage.fromBytes(
-      bytes: bytes,
-      metadata: InputImageMetadata(
-        size: imageSize,
-        rotation: imageRotation,
-        format: inputImageFormat,
-        bytesPerRow: image.planes[0].bytesPerRow,
-      ),
-    );
+    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
   }
 
-  InputImageRotation _rotationIntToImageRotation(int rotation) {
-    switch (rotation) {
-      case 90:
-        return InputImageRotation.rotation90deg;
-      case 180:
-        return InputImageRotation.rotation180deg;
-      case 270:
-        return InputImageRotation.rotation270deg;
-      default:
-        return InputImageRotation.rotation0deg;
-    }
-  }
+  // Helper for Android Orientation
+  final _orientations = {
+    DeviceOrientation.portraitUp: 0,
+    DeviceOrientation.landscapeLeft: 90,
+    DeviceOrientation.portraitDown: 180,
+    DeviceOrientation.landscapeRight: 270,
+  };
 
   @override
   void dispose() {
-    _cameraController?.dispose();
+    _controller?.dispose();
     _faceDetector.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return const SizedBox.shrink();
+    if (!widget.showFeed ||
+        _controller == null ||
+        !_controller!.value.isInitialized) {
+      return Container(color: Colors.black);
     }
-
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      height: widget.showFeed ? 300 : 1,
-      child: Opacity(
-        opacity: widget.showFeed ? 1.0 : 0.0,
-        child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.center,
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: MediaQuery.of(context).size.width,
-                height:
-                    MediaQuery.of(context).size.width *
-                    _cameraController!.value.aspectRatio,
-                child: CameraPreview(_cameraController!),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    return CameraPreview(_controller!);
   }
 }

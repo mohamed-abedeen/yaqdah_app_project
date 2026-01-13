@@ -26,6 +26,7 @@ class DashboardUI extends StatefulWidget {
   final VoidCallback onMicToggle;
   final bool isListening;
   final bool showCameraFeed;
+  final String currentCameraName; // ✅
 
   const DashboardUI({
     super.key,
@@ -40,6 +41,7 @@ class DashboardUI extends StatefulWidget {
     required this.onMicToggle,
     required this.isListening,
     required this.showCameraFeed,
+    required this.currentCameraName,
   });
 
   @override
@@ -60,20 +62,19 @@ class _DashboardUIState extends State<DashboardUI> {
   List<LatLng> _routePoints = [];
   bool _isRouteLoading = false;
   String _tripDistanceDisplay = "0 m";
-  String _etaDisplay = "--"; // ✅ Added for Accurate ETA
+  String _etaDisplay = "--";
 
   // Map State
   bool _isAutoFollowing = true;
-  List<Polygon> _isochrones = []; // ✅ Added for Reachability
+  List<Polygon> _isochrones = [];
   bool _showIsochrone = false;
 
-  // Trip State
   int _tripDurationSeconds = 0;
   Timer? _tripTimer;
-
-  // Search State
   bool _isSearching = false;
   List<dynamic> _searchResults = [];
+  bool _tripSessionActive = false;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
@@ -95,54 +96,50 @@ class _DashboardUIState extends State<DashboardUI> {
     if (!serviceEnabled) return;
     await Permission.location.request();
 
-    Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,
-      ),
-    ).listen((Position position) {
-      if (!mounted) return;
-      final newLatLong = LatLng(position.latitude, position.longitude);
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            distanceFilter: 0,
+          ),
+        ).listen((Position position) {
+          if (!mounted) return;
+          final newLatLong = LatLng(position.latitude, position.longitude);
 
-      String newDist = _tripDistanceDisplay;
-      if (_destination != null) {
-        double meters = _distanceCalculator.as(
-          LengthUnit.Meter,
-          newLatLong,
-          _destination!,
-        );
-        newDist = meters < 1000
-            ? "${meters.toInt()} m"
-            : "${(meters / 1000).toStringAsFixed(1)} km";
-      }
+          String newDist = _tripDistanceDisplay;
+          if (_destination != null) {
+            double meters = _distanceCalculator.as(
+              LengthUnit.Meter,
+              newLatLong,
+              _destination!,
+            );
+            newDist = meters < 1000
+                ? "${meters.toInt()} m"
+                : "${(meters / 1000).toStringAsFixed(1)} km";
+          }
 
-      setState(() {
-        _currentLocation = newLatLong;
-        _tripDistanceDisplay = newDist;
-        if (position.speed > 0.5) _currentHeading = position.heading;
-        _updateRouteLine(newLatLong);
-      });
+          setState(() {
+            _currentLocation = newLatLong;
+            _tripDistanceDisplay = newDist;
+            if (position.speed > 0.5) _currentHeading = position.heading;
+            _updateRouteLine(newLatLong);
+          });
 
-      widget.onLocationUpdate(newLatLong);
-      if (_isAutoFollowing) _mapController.move(newLatLong, 18.0);
-    });
+          widget.onLocationUpdate(newLatLong);
+          if (_isAutoFollowing) _mapController.move(newLatLong, 18.0);
+        });
   }
 
   void _updateRouteLine(LatLng carPos) {
     if (_routePoints.isEmpty) return;
-    // Simple logic to snap route (omitted for brevity, same as before)
   }
 
-  // =========================================
-  // 1. BETTER SEARCH (Mapbox Geocoding)
-  // =========================================
   Future<void> _performSearch(String query, StateSetter setModalState) async {
     if (query.isEmpty) return;
     setModalState(() => _isSearching = true);
 
-    // ✅ Mapbox Geocoding API
     final url = Uri.parse(
-      "https://api.mapbox.com/geocoding/v5/mapbox.places/$query.json?access_token=$_mapboxAccessToken&autocomplete=true&limit=5",
+      "https://api.mapbox.com/geocoding/v5/mapbox.places/$query.json?access_token=$_mapboxAccessToken&autocomplete=true&limit=5&country=LY",
     );
 
     try {
@@ -150,7 +147,7 @@ class _DashboardUIState extends State<DashboardUI> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setModalState(() {
-          _searchResults = data['features']; // Mapbox returns 'features'
+          _searchResults = data['features'];
           _isSearching = false;
         });
       }
@@ -159,21 +156,17 @@ class _DashboardUIState extends State<DashboardUI> {
     }
   }
 
-  // =========================================
-  // 2. ACCURATE ETAs (Mapbox Directions)
-  // =========================================
   void _navigateToDestination(LatLng dest) async {
     setState(() {
       _destination = dest;
       _isRouteLoading = true;
       _isAutoFollowing = false;
-      _isochrones.clear(); // Clear isochrone if navigating
+      _isochrones.clear();
       _showIsochrone = false;
     });
 
-    // ✅ Mapbox Directions API (Driving with Traffic)
     final url = Uri.parse(
-      'https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${_currentLocation.longitude},${_currentLocation.latitude};${dest.longitude},${dest.latitude}?geometries=geojson&overview=full&access_token=$_mapboxAccessToken',
+      'https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${_currentLocation.longitude},${_currentLocation.latitude};${dest.longitude},${dest.latitude}?geometries=geojson&overview=full&annotations=duration&access_token=$_mapboxAccessToken',
     );
 
     try {
@@ -182,13 +175,11 @@ class _DashboardUIState extends State<DashboardUI> {
         final data = json.decode(response.body);
         final route = data['routes'][0];
 
-        // 1. Parse Geometry
         final List coords = route['geometry']['coordinates'];
         final points = coords
             .map((c) => LatLng(c[1].toDouble(), c[0].toDouble()))
             .toList();
 
-        // 2. Parse Duration for Accurate ETA
         final double durationSeconds = route['duration'];
         final int minutes = (durationSeconds / 60).round();
         final int hours = minutes ~/ 60;
@@ -197,7 +188,7 @@ class _DashboardUIState extends State<DashboardUI> {
 
         setState(() {
           _routePoints = points;
-          _etaDisplay = eta; // Update UI
+          _etaDisplay = eta;
           _isRouteLoading = false;
         });
       }
@@ -207,9 +198,6 @@ class _DashboardUIState extends State<DashboardUI> {
     _mapController.move(dest, 15.0);
   }
 
-  // =========================================
-  // 3. REACHABILITY (Mapbox Isochrone)
-  // =========================================
   void _toggleIsochrone() async {
     if (_showIsochrone) {
       setState(() {
@@ -218,10 +206,8 @@ class _DashboardUIState extends State<DashboardUI> {
       });
       return;
     }
-
     setState(() => _showIsochrone = true);
 
-    // ✅ Mapbox Isochrone API (15 minute drive range)
     final url = Uri.parse(
       "https://api.mapbox.com/isochrone/v1/mapbox/driving/${_currentLocation.longitude},${_currentLocation.latitude}?contours_minutes=15&polygons=true&access_token=$_mapboxAccessToken",
     );
@@ -235,8 +221,6 @@ class _DashboardUIState extends State<DashboardUI> {
         List<Polygon> polygons = [];
         for (var f in features) {
           final List coords = f['geometry']['coordinates'];
-          // Handle MultiPolygon vs Polygon structure if needed, usually simplified here:
-          // Coordinates are usually [[[lon, lat], ...]]
           if (coords.isNotEmpty) {
             List<LatLng> points = [];
             for (var point in coords[0]) {
@@ -253,15 +237,11 @@ class _DashboardUIState extends State<DashboardUI> {
             );
           }
         }
-
         if (mounted) setState(() => _isochrones = polygons);
       }
-    } catch (e) {
-      debugPrint("Isochrone Error: $e");
-    }
+    } catch (e) {}
   }
 
-  // ... (Helper Methods: _recenterMap, _clearNavigation, _formatTime) ...
   void _recenterMap() {
     setState(() => _isAutoFollowing = true);
     _mapController.move(_currentLocation, 18.0);
@@ -284,13 +264,7 @@ class _DashboardUIState extends State<DashboardUI> {
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  Color _getStatusColor() {
-    if (widget.drowsinessLevel < 30) return Colors.green;
-    if (widget.drowsinessLevel < 60) return Colors.amber;
-    return Colors.red;
-  }
-
-  // ... (Search Sheet UI) ...
+  // ✅ FIXED: Method defined inside State class
   void _openSearchSheet() {
     showModalBottomSheet(
       context: context,
@@ -308,7 +282,7 @@ class _DashboardUIState extends State<DashboardUI> {
                     controller: _searchController,
                     style: Theme.of(context).textTheme.bodyMedium,
                     decoration: InputDecoration(
-                      hintText: "Where to?",
+                      hintText: "Where to (Libya)?",
                       hintStyle: Theme.of(context).textTheme.bodySmall,
                       prefixIcon: Icon(
                         Icons.search,
@@ -346,14 +320,13 @@ class _DashboardUIState extends State<DashboardUI> {
                           title: Text(
                             result['text'] ?? "",
                             style: Theme.of(context).textTheme.bodyMedium,
-                          ), // Mapbox uses 'text'
+                          ),
                           subtitle: Text(
                             result['place_name'] ?? "",
                             maxLines: 1,
                             style: Theme.of(context).textTheme.bodySmall,
-                          ), // Mapbox uses 'place_name'
+                          ),
                           onTap: () {
-                            // Mapbox center is [lon, lat]
                             double lon = result['center'][0];
                             double lat = result['center'][1];
                             Navigator.pop(context);
@@ -374,10 +347,8 @@ class _DashboardUIState extends State<DashboardUI> {
 
   @override
   Widget build(BuildContext context) {
-    Color statusColor = _getStatusColor();
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final mapStyle = isDark ? 'mapbox/dark-v11' : 'mapbox/streets-v12';
+    const mapStyle = 'mapbox/navigation-day-v1';
 
     return SingleChildScrollView(
       primary: false,
@@ -386,37 +357,85 @@ class _DashboardUIState extends State<DashboardUI> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 30),
-          // ... (Header and Status Card - Same as before) ...
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Welcome Back",
-                    style: theme.textTheme.titleLarge?.copyWith(fontSize: 24),
-                  ),
-                  Text(
-                    "Stay safe on your journey",
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ),
+              _tripSessionActive
+                  ? Expanded(
+                      child: Row(
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: widget.onToggleMonitoring,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: widget.isMonitoring
+                                  ? Colors.orange[800]
+                                  : Colors.green[700],
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: Icon(
+                              widget.isMonitoring
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
+                              color: Colors.white,
+                            ),
+                            label: Text(
+                              widget.isMonitoring
+                                  ? "Pause Trip"
+                                  : "Resume Trip",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Welcome Back \nDriver",
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontSize: 24,
+                          ),
+                        ),
+                        Text(
+                          "Stay safe on your journey",
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _iconBtn(
                     widget.showCameraFeed ? Icons.videocam_off : Icons.videocam,
                     widget.onToggleCamera,
                     context,
+                    widget.showCameraFeed ? "Hide Feed" : "Show Feed",
                   ),
                   const SizedBox(width: 8),
-                  _iconBtn(Icons.cameraswitch, widget.onSwitchCamera, context),
+                  _iconBtn(
+                    Icons.cameraswitch,
+                    widget.onSwitchCamera,
+                    context,
+                    widget.currentCameraName,
+                  ),
                 ],
               ),
             ],
           ),
+
           const SizedBox(height: 20),
+
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -427,14 +446,6 @@ class _DashboardUIState extends State<DashboardUI> {
               ),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: theme.dividerColor),
-              boxShadow: [
-                if (theme.brightness == Brightness.light)
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-              ],
             ),
             child: Column(
               children: [
@@ -495,7 +506,7 @@ class _DashboardUIState extends State<DashboardUI> {
                   child: LinearProgressIndicator(
                     value: widget.drowsinessLevel / 100,
                     minHeight: 8,
-                    color: statusColor,
+                    color: _getStatusColor(),
                     backgroundColor: Colors.grey[800],
                   ),
                 ),
@@ -503,6 +514,7 @@ class _DashboardUIState extends State<DashboardUI> {
             ),
           ),
           const SizedBox(height: 16),
+
           if (widget.drowsinessLevel > 50)
             Container(
               padding: const EdgeInsets.all(16),
@@ -532,7 +544,6 @@ class _DashboardUIState extends State<DashboardUI> {
 
           const SizedBox(height: 16),
 
-          // Stats (Updated with ETA)
           Row(
             children: [
               Expanded(
@@ -561,7 +572,6 @@ class _DashboardUIState extends State<DashboardUI> {
                 child: _statCard(Icons.speed, "Avg Speed", "68 km/h", context),
               ),
               const SizedBox(width: 12),
-              // ✅ Dynamic ETA from Mapbox
               Expanded(
                 child: _statCard(
                   Icons.trending_up,
@@ -575,7 +585,6 @@ class _DashboardUIState extends State<DashboardUI> {
 
           const SizedBox(height: 20),
 
-          // Map
           Container(
             height: 350,
             decoration: BoxDecoration(
@@ -601,7 +610,6 @@ class _DashboardUIState extends State<DashboardUI> {
                       userAgentPackageName: 'com.example.yaqdah_app',
                       retinaMode: true,
                     ),
-                    // ✅ Isochrone Polygon Layer
                     PolygonLayer(polygons: _isochrones),
                     PolylineLayer(
                       polylines: [
@@ -609,7 +617,7 @@ class _DashboardUIState extends State<DashboardUI> {
                           Polyline(
                             points: _routePoints,
                             strokeWidth: 5.0,
-                            color: theme.primaryColor,
+                            color: Colors.blueAccent,
                           ),
                       ],
                     ),
@@ -623,7 +631,7 @@ class _DashboardUIState extends State<DashboardUI> {
                             angle: _currentHeading * (math.pi / 180),
                             child: Icon(
                               Icons.navigation,
-                              color: theme.primaryColor,
+                              color: Colors.blueAccent,
                               size: 40,
                             ),
                           ),
@@ -643,6 +651,7 @@ class _DashboardUIState extends State<DashboardUI> {
                     ),
                   ],
                 ),
+                // ✅ FIXED: Correctly referenced here
                 Positioned(
                   top: 10,
                   left: 10,
@@ -653,6 +662,7 @@ class _DashboardUIState extends State<DashboardUI> {
                     onPressed: _openSearchSheet,
                   ),
                 ),
+
                 Positioned(
                   top: 10,
                   right: 10,
@@ -665,8 +675,6 @@ class _DashboardUIState extends State<DashboardUI> {
                     onPressed: _recenterMap,
                   ),
                 ),
-
-                // ✅ Reachability (Isochrone) Button
                 Positioned(
                   top: 60,
                   right: 10,
@@ -684,7 +692,6 @@ class _DashboardUIState extends State<DashboardUI> {
                     onPressed: _toggleIsochrone,
                   ),
                 ),
-
                 if (_destination != null)
                   Positioned(
                     top: 10,
@@ -703,7 +710,6 @@ class _DashboardUIState extends State<DashboardUI> {
               ],
             ),
           ),
-
           const SizedBox(height: 20),
           _buildActionButtons(context),
           const SizedBox(height: 120),
@@ -712,18 +718,42 @@ class _DashboardUIState extends State<DashboardUI> {
     );
   }
 
-  // Helpers
-  Widget _iconBtn(IconData icon, VoidCallback onTap, BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: Theme.of(context).primaryColor),
-        onPressed: onTap,
-      ),
+  Color _getStatusColor() {
+    if (widget.drowsinessLevel < 30) return Colors.green;
+    if (widget.drowsinessLevel < 60) return Colors.amber;
+    return Colors.red;
+  }
+
+  Widget _iconBtn(
+    IconData icon,
+    VoidCallback onTap,
+    BuildContext context,
+    String label,
+  ) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: IconButton(
+            icon: Icon(icon, color: Theme.of(context).primaryColor),
+            onPressed: onTap,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            color: Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
     );
   }
 
@@ -762,17 +792,29 @@ class _DashboardUIState extends State<DashboardUI> {
         Expanded(
           child: ElevatedButton.icon(
             onPressed: () {
-              if (widget.isMonitoring) {
+              if (_tripSessionActive) {
                 DatabaseService.instance.saveTrip(
                   _formatTime(_tripDurationSeconds),
                   _tripDistanceDisplay,
                   widget.drowsinessLevel > 50 ? "Drowsy" : "Safe Trip",
                 );
+                if (widget.isMonitoring) {
+                  widget.onToggleMonitoring();
+                }
+                setState(() {
+                  _tripSessionActive = false;
+                  _tripDurationSeconds = 0;
+                  _tripDistanceDisplay = "0 m";
+                });
+              } else {
+                setState(() => _tripSessionActive = true);
+                if (!widget.isMonitoring) {
+                  widget.onToggleMonitoring();
+                }
               }
-              widget.onToggleMonitoring();
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: widget.isMonitoring
+              backgroundColor: _tripSessionActive
                   ? Colors.red[900]
                   : Colors.green[800],
               padding: const EdgeInsets.all(16),
@@ -781,11 +823,11 @@ class _DashboardUIState extends State<DashboardUI> {
               ),
             ),
             icon: Icon(
-              widget.isMonitoring ? Icons.stop_circle : Icons.play_arrow,
+              _tripSessionActive ? Icons.stop_circle : Icons.play_arrow,
               color: Colors.white,
             ),
             label: Text(
-              widget.isMonitoring ? "End Trip" : "Start Trip",
+              _tripSessionActive ? "End Trip" : "Start Trip",
               style: const TextStyle(color: Colors.white),
             ),
           ),
@@ -812,6 +854,7 @@ class _DashboardUIState extends State<DashboardUI> {
   @override
   void dispose() {
     _tripTimer?.cancel();
+    _positionStreamSubscription?.cancel();
     super.dispose();
   }
 }
