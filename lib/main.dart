@@ -3,9 +3,6 @@ import 'package:flutter/material.dart';
 import 'services/theme_service.dart';
 import 'screens/home_screen.dart';
 
-// You need to import the actual screen you want to show
-// import 'screens/home_screen.dart';
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -33,16 +30,12 @@ class YaqdahApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'Yaqdah App',
-          theme: isDarkMode
-              ? ThemeService.instance.darkTheme
-              : ThemeService.instance.lightTheme,
-
-          // --- FIX IS HERE ---
-          // Instead of calling YaqdahApp again, call your actual Main Screen
+          theme: ThemeService.instance.lightTheme,
+          darkTheme: ThemeService.instance.darkTheme,
+          themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
           home: Homescreen(cameras: cameras),
         );
       },
     );
   }
 }
-          // 
