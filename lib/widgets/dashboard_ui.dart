@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -7,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:convert';
 import '../services/database_service.dart';
 import '../services/location_sms_service.dart';
 
@@ -21,12 +21,10 @@ class DashboardUI extends StatefulWidget {
   final double drowsinessLevel;
   final String aiMessage;
   final VoidCallback onToggleMonitoring;
-  final VoidCallback onToggleCamera;
-  final VoidCallback onSwitchCamera;
   final VoidCallback onMicToggle;
   final bool isListening;
-  final bool showCameraFeed;
-  final String currentCameraName; // ✅
+  final VoidCallback onSwitchCamera;
+  final String currentCameraName;
 
   const DashboardUI({
     super.key,
@@ -36,11 +34,9 @@ class DashboardUI extends StatefulWidget {
     required this.drowsinessLevel,
     required this.aiMessage,
     required this.onToggleMonitoring,
-    required this.onToggleCamera,
-    required this.onSwitchCamera,
     required this.onMicToggle,
     required this.isListening,
-    required this.showCameraFeed,
+    required this.onSwitchCamera,
     required this.currentCameraName,
   });
 
@@ -48,7 +44,8 @@ class DashboardUI extends StatefulWidget {
   State<DashboardUI> createState() => _DashboardUIState();
 }
 
-class _DashboardUIState extends State<DashboardUI> {
+class _DashboardUIState extends State<DashboardUI>
+    with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
   final LocationSmsService _smsService = LocationSmsService();
   final Distance _distanceCalculator = const Distance();
@@ -56,31 +53,45 @@ class _DashboardUIState extends State<DashboardUI> {
 
   LatLng _currentLocation = const LatLng(32.8872, 13.1913);
   double _currentHeading = 0.0;
+  double _currentSpeed = 0.0;
 
-  // Navigation State
   LatLng? _destination;
   List<LatLng> _routePoints = [];
   bool _isRouteLoading = false;
   String _tripDistanceDisplay = "0 m";
   String _etaDisplay = "--";
-
-  // Map State
   bool _isAutoFollowing = true;
-  List<Polygon> _isochrones = [];
-  bool _showIsochrone = false;
 
   int _tripDurationSeconds = 0;
   Timer? _tripTimer;
   bool _isSearching = false;
   List<dynamic> _searchResults = [];
+
   bool _tripSessionActive = false;
   StreamSubscription<Position>? _positionStreamSubscription;
+
+  // ✅ New Logic: Track if the trip was dangerous
+  List<String> _tripEvents = [];
+  bool _hasDangerousEvents = false;
+
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     _startTripTimer();
     _startLiveLocationUpdates();
+
+    _pulseController = AnimationController(
+      duration: const Duration(seconds: 1),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(
+      begin: 0.2,
+      end: 1.0,
+    ).animate(_pulseController);
   }
 
   void _startTripTimer() {
@@ -118,9 +129,13 @@ class _DashboardUIState extends State<DashboardUI> {
                 : "${(meters / 1000).toStringAsFixed(1)} km";
           }
 
+          double speedKmh = position.speed * 3.6;
+          if (speedKmh < 0) speedKmh = 0;
+
           setState(() {
             _currentLocation = newLatLong;
             _tripDistanceDisplay = newDist;
+            _currentSpeed = speedKmh;
             if (position.speed > 0.5) _currentHeading = position.heading;
             _updateRouteLine(newLatLong);
           });
@@ -161,8 +176,6 @@ class _DashboardUIState extends State<DashboardUI> {
       _destination = dest;
       _isRouteLoading = true;
       _isAutoFollowing = false;
-      _isochrones.clear();
-      _showIsochrone = false;
     });
 
     final url = Uri.parse(
@@ -184,7 +197,7 @@ class _DashboardUIState extends State<DashboardUI> {
         final int minutes = (durationSeconds / 60).round();
         final int hours = minutes ~/ 60;
         final int mins = minutes % 60;
-        String eta = hours > 0 ? "${hours}h ${mins}m" : "${mins}m";
+        String eta = hours > 0 ? "${hours}س ${mins}د" : "${mins}د";
 
         setState(() {
           _routePoints = points;
@@ -196,50 +209,6 @@ class _DashboardUIState extends State<DashboardUI> {
       setState(() => _isRouteLoading = false);
     }
     _mapController.move(dest, 15.0);
-  }
-
-  void _toggleIsochrone() async {
-    if (_showIsochrone) {
-      setState(() {
-        _showIsochrone = false;
-        _isochrones = [];
-      });
-      return;
-    }
-    setState(() => _showIsochrone = true);
-
-    final url = Uri.parse(
-      "https://api.mapbox.com/isochrone/v1/mapbox/driving/${_currentLocation.longitude},${_currentLocation.latitude}?contours_minutes=15&polygons=true&access_token=$_mapboxAccessToken",
-    );
-
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List features = data['features'];
-
-        List<Polygon> polygons = [];
-        for (var f in features) {
-          final List coords = f['geometry']['coordinates'];
-          if (coords.isNotEmpty) {
-            List<LatLng> points = [];
-            for (var point in coords[0]) {
-              points.add(LatLng(point[1].toDouble(), point[0].toDouble()));
-            }
-            polygons.add(
-              Polygon(
-                points: points,
-                color: Colors.blue.withOpacity(0.3),
-                borderStrokeWidth: 2,
-                borderColor: Colors.blueAccent,
-                isFilled: true,
-              ),
-            );
-          }
-        }
-        if (mounted) setState(() => _isochrones = polygons);
-      }
-    } catch (e) {}
   }
 
   void _recenterMap() {
@@ -264,7 +233,90 @@ class _DashboardUIState extends State<DashboardUI> {
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  // ✅ FIXED: Method defined inside State class
+  // ✅ UPDATED LOGIC: Start/End Trip Session
+  void _startTrip() {
+    setState(() {
+      _tripSessionActive = true;
+      _tripEvents = [];
+      _hasDangerousEvents = false; // Reset danger flag
+      _tripEvents.add("${DateTime.now().toIso8601String()}: 🏁 بدء الرحلة");
+    });
+    if (!widget.isMonitoring) {
+      widget.onToggleMonitoring();
+    }
+  }
+
+  void _endTrip() {
+    _tripEvents.add("${DateTime.now().toIso8601String()}: 🛑 نهاية الرحلة");
+
+    // ✅ FIXED: Determine status based on HISTORY, not just current moment
+    String finalStatus = "رحلة آمنة";
+    if (_hasDangerousEvents || widget.drowsinessLevel > 50) {
+      finalStatus = "ناعس"; // Mark as Drowsy if ANY bad event happened
+    }
+
+    DatabaseService.instance.saveTrip(
+      _formatTime(_tripDurationSeconds),
+      _tripDistanceDisplay,
+      finalStatus,
+      _tripEvents,
+    );
+
+    if (widget.isMonitoring) {
+      widget.onToggleMonitoring();
+    }
+    setState(() {
+      _tripSessionActive = false;
+      _tripDurationSeconds = 0;
+      _tripDistanceDisplay = "0 m";
+    });
+  }
+
+  void _triggerSOSManual() {
+    setState(() => _hasDangerousEvents = true); // Mark trip as dangerous
+    _tripEvents.add(
+      "${DateTime.now().toIso8601String()}: 🆘 نداء استغاثة يدوي",
+    );
+    _smsService.sendEmergencyAlert();
+  }
+
+  // ✅ Track Automatic Alerts via Widget Update
+  @override
+  void didUpdateWidget(DashboardUI oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_tripSessionActive) {
+      if (widget.status != oldWidget.status && widget.status == "ASLEEP") {
+        setState(() => _hasDangerousEvents = true); // Mark as dangerous
+        _tripEvents.add(
+          "${DateTime.now().toIso8601String()}: ⚠️ تم اكتشاف نوم السائق!",
+        );
+      }
+      if (widget.status != oldWidget.status && widget.status == "DROWSY") {
+        setState(() => _hasDangerousEvents = true); // Mark as dangerous
+        _tripEvents.add(
+          "${DateTime.now().toIso8601String()}: 😴 تم اكتشاف نعاس",
+        );
+      }
+    }
+  }
+
+  String _getLocalizedStatus(String status) {
+    switch (status.toUpperCase()) {
+      case 'AWAKE':
+        return 'يقظ';
+      case 'DROWSY':
+        return 'نعسان';
+      case 'DISTRACTED':
+        return 'مشتت';
+      case 'ASLEEP':
+        return 'نائم';
+      case 'IDLE':
+        return 'متوقف';
+      default:
+        return status;
+    }
+  }
+
   void _openSearchSheet() {
     showModalBottomSheet(
       context: context,
@@ -282,7 +334,7 @@ class _DashboardUIState extends State<DashboardUI> {
                     controller: _searchController,
                     style: Theme.of(context).textTheme.bodyMedium,
                     decoration: InputDecoration(
-                      hintText: "Where to (Libya)?",
+                      hintText: "ابحث عن مكان",
                       hintStyle: Theme.of(context).textTheme.bodySmall,
                       prefixIcon: Icon(
                         Icons.search,
@@ -350,371 +402,413 @@ class _DashboardUIState extends State<DashboardUI> {
     final theme = Theme.of(context);
     const mapStyle = 'mapbox/navigation-day-v1';
 
-    return SingleChildScrollView(
-      primary: false,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 30),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _tripSessionActive
-                  ? Expanded(
-                      child: Row(
+              _labeledActionButton(
+                context,
+                label: "رسالة طوارئ",
+                icon: Icons.warning_amber_rounded,
+                iconColor: const Color.fromARGB(255, 253, 20, 3),
+                bgColor: Colors.red.withOpacity(0.1),
+                onTap: _triggerSOSManual,
+              ),
+              if (!_tripSessionActive)
+                _labeledActionButton(
+                  context,
+                  label: "بدء الرحلة",
+                  icon: Icons.play_arrow_outlined,
+                  iconColor: const Color.fromARGB(255, 2, 249, 11),
+                  bgColor: Colors.green.withOpacity(0.1),
+                  onTap: _startTrip,
+                )
+              else ...[
+                _labeledActionButton(
+                  context,
+                  label: widget.isMonitoring ? "توقف" : "استئناف",
+                  icon: widget.isMonitoring
+                      ? Icons.pause_outlined
+                      : Icons.play_arrow_outlined,
+                  iconColor: const Color.fromARGB(255, 245, 122, 40),
+                  bgColor: Colors.orange.withOpacity(0.1),
+                  onTap: widget.onToggleMonitoring,
+                ),
+                _labeledActionButton(
+                  context,
+                  label: "إنهاء الرحلة",
+                  icon: Icons.stop,
+                  iconColor: Colors.red,
+                  bgColor: Colors.red.withOpacity(0.1),
+                  onTap: _endTrip,
+                ),
+              ],
+              _labeledActionButton(
+                context,
+                label: widget.currentCameraName,
+                icon: Icons.cameraswitch_outlined,
+                iconColor: theme.primaryColor,
+                bgColor: theme.cardColor,
+                onTap: widget.onSwitchCamera,
+                hasBorder: true,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: widget.status == "ASLEEP"
+                          ? [Colors.red.shade900, Colors.red.shade800]
+                          : [theme.cardColor, theme.cardColor.withOpacity(0.8)],
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
                         children: [
-                          ElevatedButton.icon(
-                            onPressed: widget.onToggleMonitoring,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: widget.isMonitoring
-                                  ? Colors.orange[800]
-                                  : Colors.green[700],
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: const BoxDecoration(
+                              color: Colors.green,
+                              shape: BoxShape.circle,
                             ),
-                            icon: Icon(
-                              widget.isMonitoring
-                                  ? Icons.pause
-                                  : Icons.play_arrow,
+                            child: const Icon(
+                              Icons.remove_red_eye,
                               color: Colors.white,
                             ),
-                            label: Text(
-                              widget.isMonitoring
-                                  ? "Pause Trip"
-                                  : "Resume Trip",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "حالة السائق",
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
                               ),
-                            ),
+                              Text(
+                                widget.isMonitoring
+                                    ? _getLocalizedStatus(widget.status)
+                                    : "غير نشط",
+                                style: const TextStyle(
+                                  color: Colors.greenAccent,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (widget.isMonitoring)
+                                FadeTransition(
+                                  opacity: _pulseAnimation,
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.greenAccent,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Text(
+                                        "المراقبة مفعلة",
+                                        style: TextStyle(
+                                          color: Colors.greenAccent,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const Spacer(),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                "${widget.drowsinessLevel.toInt()}%",
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.textTheme.bodyMedium?.color,
+                                ),
+                              ),
+                              const Text(
+                                "مستوى اليقظة",
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Welcome Back \nDriver",
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontSize: 24,
-                          ),
+                      const SizedBox(height: 16),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: widget.drowsinessLevel / 100,
+                          minHeight: 8,
+                          color: _getStatusColor(),
+                          backgroundColor: Colors.grey[800],
                         ),
-                        Text(
-                          "Stay safe on your journey",
-                          style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (widget.drowsinessLevel > 50)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.warning, color: Colors.red, size: 30),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            "تنبيه: يبدو أنك تشعر بالنعاس. يرجى التوقف وأخذ قسط من الراحة.",
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ],
                     ),
-
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _iconBtn(
-                    widget.showCameraFeed ? Icons.videocam_off : Icons.videocam,
-                    widget.onToggleCamera,
-                    context,
-                    widget.showCameraFeed ? "Hide Feed" : "Show Feed",
+                  )
+                else
+                  const SizedBox.shrink(),
+                const SizedBox(height: 20),
+                Container(
+                  height: 350,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: theme.dividerColor),
                   ),
-                  const SizedBox(width: 8),
-                  _iconBtn(
-                    Icons.cameraswitch,
-                    widget.onSwitchCamera,
-                    context,
-                    widget.currentCameraName,
+                  clipBehavior: Clip.hardEdge,
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _currentLocation,
+                          initialZoom: 18.0,
+                          onTap: (tapPosition, point) {
+                            _navigateToDestination(point);
+                          },
+                          onPositionChanged: (p, g) {
+                            if (g) setState(() => _isAutoFollowing = false);
+                          },
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://api.mapbox.com/styles/v1/$mapStyle/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
+                            userAgentPackageName: 'com.example.yaqdah_app',
+                            retinaMode: true,
+                          ),
+                          PolylineLayer(
+                            polylines: [
+                              if (_routePoints.isNotEmpty)
+                                Polyline(
+                                  points: _routePoints,
+                                  strokeWidth: 5.0,
+                                  color: Colors.blueAccent,
+                                ),
+                            ],
+                          ),
+                          MarkerLayer(
+                            markers: [
+                              Marker(
+                                point: _currentLocation,
+                                width: 50,
+                                height: 50,
+                                child: Transform.rotate(
+                                  angle: _currentHeading * (math.pi / 180),
+                                  child: Icon(
+                                    Icons.navigation,
+                                    color: Colors.blueAccent,
+                                    size: 40,
+                                  ),
+                                ),
+                              ),
+                              if (_destination != null)
+                                Marker(
+                                  point: _destination!,
+                                  width: 40,
+                                  height: 40,
+                                  child: const Icon(
+                                    Icons.location_on,
+                                    color: Colors.red,
+                                    size: 35,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: FloatingActionButton.small(
+                          heroTag: "search",
+                          backgroundColor: theme.primaryColor,
+                          child: const Icon(Icons.search, color: Colors.white),
+                          onPressed: _openSearchSheet,
+                        ),
+                      ),
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: FloatingActionButton.small(
+                          heroTag: "recenter",
+                          backgroundColor: _isAutoFollowing
+                              ? theme.primaryColor
+                              : Colors.grey,
+                          child: Icon(Icons.my_location, color: Colors.white),
+                          onPressed: _recenterMap,
+                        ),
+                      ),
+                      if (_destination != null)
+                        Positioned(
+                          top: 60,
+                          right: 10,
+                          child: FloatingActionButton.small(
+                            heroTag: "cancel",
+                            backgroundColor: Colors.redAccent,
+                            child: const Icon(Icons.close, color: Colors.white),
+                            onPressed: _clearNavigation,
+                          ),
+                        ),
+                      if (_isRouteLoading)
+                        Center(
+                          child: CircularProgressIndicator(
+                            color: theme.primaryColor,
+                          ),
+                        ),
+                    ],
                   ),
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: widget.status == "ASLEEP"
-                    ? [Colors.red.shade900, Colors.red.shade800]
-                    : [theme.cardColor, theme.cardColor.withOpacity(0.8)],
-              ),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: theme.dividerColor),
-            ),
-            child: Column(
-              children: [
+                ),
+                const SizedBox(height: 20),
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: const BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.remove_red_eye,
-                        color: Colors.white,
+                    Expanded(
+                      child: _statCard(
+                        Icons.timer_outlined,
+                        "المدة",
+                        _formatTime(_tripDurationSeconds),
+                        context,
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Driver Status",
-                          style: TextStyle(color: Colors.grey, fontSize: 12),
-                        ),
-                        Text(
-                          widget.isMonitoring ? widget.status : "Paused",
-                          style: const TextStyle(
-                            color: Colors.greenAccent,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          "${widget.drowsinessLevel.toInt()}%",
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: theme.textTheme.bodyMedium?.color,
-                          ),
-                        ),
-                        const Text(
-                          "Alertness",
-                          style: TextStyle(color: Colors.grey, fontSize: 10),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: widget.drowsinessLevel / 100,
-                    minHeight: 8,
-                    color: _getStatusColor(),
-                    backgroundColor: Colors.grey[800],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          if (widget.drowsinessLevel > 50)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.red.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: const [
-                  Icon(Icons.warning, color: Colors.red, size: 30),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      "Drowsiness Detected! Please rest.",
-                      style: TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: _statCard(
+                        Icons.near_me_outlined,
+                        "المسافة",
+                        _tripDistanceDisplay,
+                        context,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            )
-          else
-            const SizedBox.shrink(),
-
-          const SizedBox(height: 16),
-
-          Row(
-            children: [
-              Expanded(
-                child: _statCard(
-                  Icons.timer_outlined,
-                  "Duration",
-                  _formatTime(_tripDurationSeconds),
-                  context,
+                  ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _statCard(
-                  Icons.near_me_outlined,
-                  "Distance",
-                  _tripDistanceDisplay,
-                  context,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _statCard(Icons.speed, "Avg Speed", "68 km/h", context),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _statCard(
-                  Icons.trending_up,
-                  "ETA",
-                  _etaDisplay,
-                  context,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          Container(
-            height: 350,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: theme.dividerColor),
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: Stack(
-              children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _currentLocation,
-                    initialZoom: 18.0,
-                    onPositionChanged: (p, g) {
-                      if (g) setState(() => _isAutoFollowing = false);
-                    },
-                  ),
+                const SizedBox(height: 12),
+                Row(
                   children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://api.mapbox.com/styles/v1/$mapStyle/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
-                      userAgentPackageName: 'com.example.yaqdah_app',
-                      retinaMode: true,
+                    Expanded(
+                      child: _statCard(
+                        Icons.speed,
+                        "السرعة",
+                        "${_currentSpeed.toStringAsFixed(0)} كم/س",
+                        context,
+                      ),
                     ),
-                    PolygonLayer(polygons: _isochrones),
-                    PolylineLayer(
-                      polylines: [
-                        if (_routePoints.isNotEmpty)
-                          Polyline(
-                            points: _routePoints,
-                            strokeWidth: 5.0,
-                            color: Colors.blueAccent,
-                          ),
-                      ],
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: _currentLocation,
-                          width: 50,
-                          height: 50,
-                          child: Transform.rotate(
-                            angle: _currentHeading * (math.pi / 180),
-                            child: Icon(
-                              Icons.navigation,
-                              color: Colors.blueAccent,
-                              size: 40,
-                            ),
-                          ),
-                        ),
-                        if (_destination != null)
-                          Marker(
-                            point: _destination!,
-                            width: 40,
-                            height: 40,
-                            child: const Icon(
-                              Icons.location_on,
-                              color: Colors.red,
-                              size: 35,
-                            ),
-                          ),
-                      ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _statCard(
+                        Icons.trending_up,
+                        "الوصول",
+                        _etaDisplay,
+                        context,
+                      ),
                     ),
                   ],
                 ),
-                // ✅ FIXED: Correctly referenced here
-                Positioned(
-                  top: 10,
-                  left: 10,
-                  child: FloatingActionButton.small(
-                    heroTag: "search",
-                    backgroundColor: theme.primaryColor,
-                    child: const Icon(Icons.search, color: Colors.white),
-                    onPressed: _openSearchSheet,
-                  ),
-                ),
-
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: FloatingActionButton.small(
-                    heroTag: "recenter",
-                    backgroundColor: _isAutoFollowing
-                        ? theme.primaryColor
-                        : Colors.grey,
-                    child: Icon(Icons.my_location, color: Colors.white),
-                    onPressed: _recenterMap,
-                  ),
-                ),
-                Positioned(
-                  top: 60,
-                  right: 10,
-                  child: FloatingActionButton.small(
-                    heroTag: "isochrone",
-                    backgroundColor: _showIsochrone
-                        ? Colors.orange
-                        : theme.cardColor,
-                    child: Icon(
-                      Icons.layers,
-                      color: _showIsochrone
-                          ? Colors.white
-                          : theme.iconTheme.color,
-                    ),
-                    onPressed: _toggleIsochrone,
-                  ),
-                ),
-                if (_destination != null)
-                  Positioned(
-                    top: 10,
-                    right: 60,
-                    child: FloatingActionButton.small(
-                      heroTag: "cancel",
-                      backgroundColor: Colors.redAccent,
-                      child: const Icon(Icons.close, color: Colors.white),
-                      onPressed: _clearNavigation,
-                    ),
-                  ),
-                if (_isRouteLoading)
-                  Center(
-                    child: CircularProgressIndicator(color: theme.primaryColor),
-                  ),
+                const SizedBox(height: 120),
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          _buildActionButtons(context),
-          const SizedBox(height: 120),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  Widget _labeledActionButton(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required Color iconColor,
+    required Color bgColor,
+    required VoidCallback onTap,
+    bool hasBorder = false,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(20),
+            border: hasBorder
+                ? Border.all(color: Theme.of(context).dividerColor)
+                : null,
+          ),
+          child: IconButton(
+            icon: Icon(icon, color: iconColor, size: 32),
+            onPressed: onTap,
+          ),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: 70,
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 
@@ -722,39 +816,6 @@ class _DashboardUIState extends State<DashboardUI> {
     if (widget.drowsinessLevel < 30) return Colors.green;
     if (widget.drowsinessLevel < 60) return Colors.amber;
     return Colors.red;
-  }
-
-  Widget _iconBtn(
-    IconData icon,
-    VoidCallback onTap,
-    BuildContext context,
-    String label,
-  ) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Theme.of(context).dividerColor),
-          ),
-          child: IconButton(
-            icon: Icon(icon, color: Theme.of(context).primaryColor),
-            onPressed: onTap,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: Colors.grey,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _statCard(
@@ -786,74 +847,10 @@ class _DashboardUIState extends State<DashboardUI> {
     );
   }
 
-  Widget _buildActionButtons(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () {
-              if (_tripSessionActive) {
-                DatabaseService.instance.saveTrip(
-                  _formatTime(_tripDurationSeconds),
-                  _tripDistanceDisplay,
-                  widget.drowsinessLevel > 50 ? "Drowsy" : "Safe Trip",
-                );
-                if (widget.isMonitoring) {
-                  widget.onToggleMonitoring();
-                }
-                setState(() {
-                  _tripSessionActive = false;
-                  _tripDurationSeconds = 0;
-                  _tripDistanceDisplay = "0 m";
-                });
-              } else {
-                setState(() => _tripSessionActive = true);
-                if (!widget.isMonitoring) {
-                  widget.onToggleMonitoring();
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _tripSessionActive
-                  ? Colors.red[900]
-                  : Colors.green[800],
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            icon: Icon(
-              _tripSessionActive ? Icons.stop_circle : Icons.play_arrow,
-              color: Colors.white,
-            ),
-            label: Text(
-              _tripSessionActive ? "End Trip" : "Start Trip",
-              style: const TextStyle(color: Colors.white),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () => _smsService.sendEmergencyAlert(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red[900],
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            icon: const Icon(Icons.emergency, color: Colors.white),
-            label: const Text("SOS", style: TextStyle(color: Colors.white)),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   void dispose() {
     _tripTimer?.cancel();
+    _pulseController.dispose();
     _positionStreamSubscription?.cancel();
     super.dispose();
   }

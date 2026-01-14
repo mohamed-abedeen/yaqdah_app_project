@@ -1,5 +1,5 @@
-import 'dart:convert'; // For utf8
-import 'package:crypto/crypto.dart'; // ✅ For Hashing
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -19,7 +19,13 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    // ✅ Version increased to 2 for schema changes
+    return await openDatabase(
+      path,
+      version: 2,
+      onCreate: _createDB,
+      onUpgrade: _onUpgrade,
+    );
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -39,19 +45,25 @@ class DatabaseService {
         date TEXT NOT NULL,
         duration TEXT NOT NULL,
         distance TEXT NOT NULL,
-        status TEXT NOT NULL
+        status TEXT NOT NULL,
+        alerts TEXT  -- ✅ New column to store JSON list of events
       )
     ''');
   }
 
-  // ✅ Helper: Hash Password (SHA-256)
+  // ✅ Handle database upgrades
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE trips ADD COLUMN alerts TEXT');
+    }
+  }
+
   String _hashPassword(String password) {
     final bytes = utf8.encode(password);
     final digest = sha256.convert(bytes);
     return digest.toString();
   }
 
-  // Register (Hashes password before saving)
   Future<bool> registerUser(
     String email,
     String password,
@@ -60,7 +72,7 @@ class DatabaseService {
   ) async {
     final db = await instance.database;
     try {
-      final hashedPassword = _hashPassword(password); // ✅ Hash it
+      final hashedPassword = _hashPassword(password);
       await db.insert('users', {
         'email': email,
         'password': hashedPassword,
@@ -69,26 +81,19 @@ class DatabaseService {
       });
       return true;
     } catch (e) {
-      return false; // Email likely exists
+      return false;
     }
   }
 
-  // Login (Hashes input password to compare)
   Future<Map<String, dynamic>?> loginUser(String email, String password) async {
     final db = await instance.database;
-    final hashedPassword = _hashPassword(password); // ✅ Hash it
-
+    final hashedPassword = _hashPassword(password);
     final result = await db.query(
       'users',
       where: 'email = ? AND password = ?',
       whereArgs: [email, hashedPassword],
     );
-
-    if (result.isNotEmpty) {
-      return result.first;
-    } else {
-      return null;
-    }
+    return result.isNotEmpty ? result.first : null;
   }
 
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
@@ -98,12 +103,7 @@ class DatabaseService {
       where: 'email = ?',
       whereArgs: [email],
     );
-
-    if (result.isNotEmpty) {
-      return result.first;
-    } else {
-      return null;
-    }
+    return result.isNotEmpty ? result.first : null;
   }
 
   Future<int> updateUser(String email, String newName, String newPhone) async {
@@ -116,13 +116,20 @@ class DatabaseService {
     );
   }
 
-  Future<void> saveTrip(String duration, String distance, String status) async {
+  // ✅ Updated saveTrip to accept alert history
+  Future<void> saveTrip(
+    String duration,
+    String distance,
+    String status,
+    List<String> alerts,
+  ) async {
     final db = await instance.database;
     await db.insert('trips', {
       'date': DateTime.now().toIso8601String(),
       'duration': duration,
       'distance': distance,
       'status': status,
+      'alerts': jsonEncode(alerts), // Store as JSON string
     });
   }
 

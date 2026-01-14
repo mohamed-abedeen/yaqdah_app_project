@@ -1,38 +1,47 @@
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'screens/home_screen.dart'; // ✅ FIXED: Added Import
+import 'screens/login_screen.dart';
 import 'services/theme_service.dart';
-import 'screens/home_screen.dart';
+import 'services/database_service.dart';
+
+List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await ThemeService.instance.init();
-
-  List<CameraDescription> cameras = [];
   try {
     cameras = await availableCameras();
-  } catch (e) {
-    debugPrint("CRITICAL CAMERA ERROR: $e");
+  } on CameraException catch (e) {
+    print('Error initializing camera: $e');
   }
 
-  runApp(YaqdahApp(cameras: cameras));
+  // Initialize critical services before app starts
+  await ThemeService.instance.init();
+
+  runApp(const YaqdahApp());
 }
 
-class YaqdahApp extends StatelessWidget {
-  final List<CameraDescription> cameras;
-  const YaqdahApp({super.key, required this.cameras});
+class YaqdahApp extends StatefulWidget {
+  const YaqdahApp({super.key});
 
+  @override
+  State<YaqdahApp> createState() => _YaqdahAppState();
+}
+
+class _YaqdahAppState extends State<YaqdahApp> {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: ThemeService.instance.isDarkMode,
-      builder: (context, isDarkMode, child) {
+      builder: (context, isDark, child) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Yaqdah App',
+          title: 'Yaqdah',
           theme: ThemeService.instance.lightTheme,
           darkTheme: ThemeService.instance.darkTheme,
-          themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+          // ✅ FIXED: Correctly referencing Homescreen
           home: Homescreen(cameras: cameras),
         );
       },

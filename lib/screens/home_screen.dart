@@ -54,7 +54,6 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   void _login(Map<String, dynamic> user) async {
-    // Only set state here; persistence handled in LoginScreen if needed
     setState(() {
       _isAuthenticated = true;
       _currentUser = user;
@@ -127,13 +126,10 @@ class _MainLayoutState extends State<MainLayout> {
   // Logic State
   LatLng? _currentLocation;
   bool _isMonitoring = false;
-  bool _showCameraFeed = false;
   String _status = "IDLE";
   double _drowsinessLevel = 0.0;
   String _aiMessage = "Press Start";
   bool _isListening = false;
-
-  // ✅ NEW: Camera Name State
   String _currentCameraName = "Camera";
 
   final AudioService _audio = AudioService();
@@ -145,11 +141,9 @@ class _MainLayoutState extends State<MainLayout> {
   void initState() {
     super.initState();
     _audio.init();
-    // Initialize label
     if (widget.cameras.isNotEmpty) _updateCameraName(0);
   }
 
-  // ✅ HELPER: Generate Camera Name
   void _updateCameraName(int index) {
     if (widget.cameras.isEmpty) return;
     final cam = widget.cameras[index];
@@ -157,7 +151,6 @@ class _MainLayoutState extends State<MainLayout> {
       if (cam.lensDirection == CameraLensDirection.front) {
         _currentCameraName = "Front Cam";
       } else if (cam.lensDirection == CameraLensDirection.back) {
-        // Distinguish multiple back cameras if present
         _currentCameraName = "Back Cam ${index + 1}";
       } else {
         _currentCameraName = "Ext Cam";
@@ -231,36 +224,43 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ 1. Access the dynamic theme data
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     final List<Widget> screens = [
+      // ✅ Main Layout with Hidden Camera
       Stack(
         children: [
-          CameraFeed(
-            key: _cameraKey,
-            cameras: widget.cameras,
-            isMonitoring: _isMonitoring,
-            showFeed: _showCameraFeed,
-            onStatusChange: _handleStatusChange,
-            // ✅ LINKED: Notify home screen when camera changes
-            onCameraChanged: _updateCameraName,
+          // 1. HIDDEN Camera Feed
+          Offstage(
+            offstage: true,
+            child: CameraFeed(
+              key: _cameraKey,
+              cameras: widget.cameras,
+              isMonitoring: _isMonitoring,
+              showFeed: true,
+              onStatusChange: _handleStatusChange,
+              onCameraChanged: _updateCameraName,
+            ),
           ),
+
+          // 2. Full Screen Dashboard
           DashboardUI(
             onLocationUpdate: (loc) => _currentLocation = loc,
             isMonitoring: _isMonitoring,
             status: _status,
             drowsinessLevel: _drowsinessLevel,
             aiMessage: _aiMessage,
-            showCameraFeed: _showCameraFeed,
             isListening: _isListening,
-            // ✅ LINKED: Pass label to Dashboard
-            currentCameraName: _currentCameraName,
-
             onToggleMonitoring: () =>
                 setState(() => _isMonitoring = !_isMonitoring),
-            onToggleCamera: () =>
-                setState(() => _showCameraFeed = !_showCameraFeed),
-            onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
             onMicToggle: _toggleListening,
+            currentCameraName: _currentCameraName,
+            onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
           ),
+
+          // 3. Floating Mic Button
           Positioned(
             bottom: 110,
             right: 20,
@@ -268,7 +268,7 @@ class _MainLayoutState extends State<MainLayout> {
               heroTag: "mic",
               backgroundColor: _isListening
                   ? Colors.red
-                  : Theme.of(context).primaryColor,
+                  : theme.primaryColor, // ✅ Use theme primary color
               onPressed: _toggleListening,
               child: Icon(_isListening ? Icons.mic_off : Icons.mic),
             ),
@@ -287,28 +287,24 @@ class _MainLayoutState extends State<MainLayout> {
       ),
     ];
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final navBarColor = isDark ? Colors.white.withOpacity(0.05) : Colors.white;
-    final navBarBorder = isDark
-        ? Colors.white.withOpacity(0.1)
-        : Colors.black.withOpacity(0.05);
+    // ✅ 2. Dynamic Colors for Navigation Bar
+    // Using cardColor ensures it matches the panels in your theme
+    final navBarColor = theme.cardColor.withOpacity(isDark ? 0.8 : 0.95);
+    final navBarBorder = theme.dividerColor;
 
     return Scaffold(
       extendBody: true,
       body: Container(
         decoration: BoxDecoration(
+          // ✅ 3. Dynamic Gradient Background
           gradient: LinearGradient(
-            colors: isDark
-                ? [
-                    const Color(0xFF0F172A),
-                    const Color(0xFF172554),
-                    const Color(0xFF0F172A),
-                  ]
-                : [
-                    const Color(0xFFF1F5F9),
-                    const Color(0xFFE2E8F0),
-                    const Color(0xFFF1F5F9),
-                  ],
+            colors: [
+              theme.scaffoldBackgroundColor, // Start color
+              isDark
+                  ? theme.colorScheme.secondary
+                  : theme.dividerColor, // Middle accent
+              theme.scaffoldBackgroundColor, // End color
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -324,16 +320,18 @@ class _MainLayoutState extends State<MainLayout> {
             child: Container(
               height: 70,
               decoration: BoxDecoration(
-                color: navBarColor,
+                color: navBarColor, // ✅ Applied dynamic color
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: navBarBorder),
+                border: Border.all(
+                  color: navBarBorder,
+                ), // ✅ Applied dynamic border
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _navItem(Icons.home_rounded, "Home", 0),
-                  _navItem(Icons.coffee_outlined, "Rest", 1),
-                  _navItem(Icons.description_outlined, "Reports", 2),
+                  _navItem(Icons.description_outlined, "Reports", 1),
+                  _navItem(Icons.coffee_outlined, "Rest", 2),
                   _navItem(Icons.person_outline, "Account", 3),
                 ],
               ),
@@ -346,8 +344,10 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _navItem(IconData icon, String label, int index) {
     bool isSelected = _currentIndex == index;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final activeColor = Theme.of(context).primaryColor;
+    // ✅ 4. Dynamic item colors
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final activeColor = theme.primaryColor;
 
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
