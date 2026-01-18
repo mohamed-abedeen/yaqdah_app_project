@@ -19,23 +19,24 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    // ✅ Version increased to 2 for schema changes
+    // ✅ Version increased to 4 (Phone number removed)
     return await openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
+    // ✅ Removed 'phone' column
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL, 
         fullName TEXT NOT NULL,
-        phone TEXT NOT NULL
+        emergencyContact TEXT
       )
     ''');
 
@@ -46,16 +47,20 @@ class DatabaseService {
         duration TEXT NOT NULL,
         distance TEXT NOT NULL,
         status TEXT NOT NULL,
-        alerts TEXT  -- ✅ New column to store JSON list of events
+        alerts TEXT
       )
     ''');
   }
 
-  // ✅ Handle database upgrades
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE trips ADD COLUMN alerts TEXT');
     }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE users ADD COLUMN emergencyContact TEXT');
+    }
+    // Note: SQLite does not support dropping columns easily in ALTER TABLE.
+    // The 'phone' column will remain for old users but be ignored by the code.
   }
 
   String _hashPassword(String password) {
@@ -64,11 +69,12 @@ class DatabaseService {
     return digest.toString();
   }
 
+  // ✅ Removed 'phone' parameter
   Future<bool> registerUser(
     String email,
     String password,
     String fullName,
-    String phone,
+    String emergencyContact,
   ) async {
     final db = await instance.database;
     try {
@@ -77,7 +83,8 @@ class DatabaseService {
         'email': email,
         'password': hashedPassword,
         'fullName': fullName,
-        'phone': phone,
+        'emergencyContact': emergencyContact,
+        // 'phone': phone, // ❌ Removed
       });
       return true;
     } catch (e) {
@@ -106,17 +113,25 @@ class DatabaseService {
     return result.isNotEmpty ? result.first : null;
   }
 
-  Future<int> updateUser(String email, String newName, String newPhone) async {
+  // ✅ Removed 'newPhone' parameter
+  Future<int> updateUser(
+    String email,
+    String newName,
+    String newEmergency,
+  ) async {
     final db = await instance.database;
     return await db.update(
       'users',
-      {'fullName': newName, 'phone': newPhone},
+      {
+        'fullName': newName,
+        'emergencyContact': newEmergency,
+        // 'phone': newPhone // ❌ Removed
+      },
       where: 'email = ?',
       whereArgs: [email],
     );
   }
 
-  // ✅ Updated saveTrip to accept alert history
   Future<void> saveTrip(
     String duration,
     String distance,
@@ -129,7 +144,7 @@ class DatabaseService {
       'duration': duration,
       'distance': distance,
       'status': status,
-      'alerts': jsonEncode(alerts), // Store as JSON string
+      'alerts': jsonEncode(alerts),
     });
   }
 

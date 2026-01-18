@@ -13,7 +13,8 @@ class SignupScreen extends StatefulWidget {
 class _SignupScreenState extends State<SignupScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
+  // final _phoneController = TextEditingController(); // ❌ Removed
+  final _emergencyContactController = TextEditingController();
   final _passController = TextEditingController();
 
   @override
@@ -28,7 +29,6 @@ class _SignupScreenState extends State<SignupScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            // ✅ Uses Theme Colors
             colors: isDark
                 ? [
                     theme.colorScheme.background,
@@ -49,7 +49,6 @@ class _SignupScreenState extends State<SignupScreen> {
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-                  // Logo
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -76,7 +75,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 30),
 
-                  // Toggle Button
                   Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
@@ -105,7 +103,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Progress Bar
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -135,7 +132,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Form Container
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -172,10 +168,13 @@ class _SignupScreenState extends State<SignupScreen> {
                           _emailController,
                         ),
                         const SizedBox(height: 16),
+                        // ❌ Removed Phone Input
+                        // _buildInput("Phone Number", Icons.phone_outlined, _phoneController),
+                        // const SizedBox(height: 16),
                         _buildInput(
-                          "Phone Number",
-                          Icons.phone_outlined,
-                          _phoneController,
+                          "Emergency Contact",
+                          Icons.contact_emergency_outlined,
+                          _emergencyContactController,
                         ),
                         const SizedBox(height: 16),
                         _buildInput(
@@ -190,19 +189,22 @@ class _SignupScreenState extends State<SignupScreen> {
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed: () async {
+                              // ✅ Updated register call (No Phone)
                               bool success = await DatabaseService.instance
                                   .registerUser(
                                     _emailController.text,
                                     _passController.text,
                                     _nameController.text,
-                                    _phoneController.text,
+                                    _emergencyContactController.text,
                                   );
 
                               if (success) {
                                 Map<String, dynamic> newUser = {
                                   'fullName': _nameController.text,
                                   'email': _emailController.text,
-                                  'phone': _phoneController.text,
+                                  'emergencyContact':
+                                      _emergencyContactController.text,
+                                  // 'phone': _phoneController.text, // ❌ Removed
                                 };
                                 widget.onLogin(newUser);
                                 Navigator.popUntil(
@@ -275,7 +277,6 @@ class _SignupScreenState extends State<SignupScreen> {
     TextEditingController controller, {
     bool isPassword = false,
   }) {
-    // Uses Global Theme for styles
     return TextField(
       controller: controller,
       obscureText: isPassword,

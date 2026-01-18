@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/database_service.dart';
-import '../services/theme_service.dart'; // ✅ Import ThemeService
+import '../services/theme_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onLogout;
@@ -18,24 +18,22 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Profile State
   late String _displayName;
-  late String _displayPhone;
+  // late String _displayPhone; // ❌ Removed
   late String _displayEmail;
+  late String _displayEmergencyContact;
 
-  // Toggle States (Local/Preferences)
   bool _pushNotifications = true;
   bool _soundAlerts = true;
 
   @override
   void initState() {
     super.initState();
-    // 1. Initialize User Data
     _displayName = widget.currentUser['fullName'] ?? "Driver";
-    _displayPhone = widget.currentUser['phone'] ?? "No Phone";
+    // _displayPhone = widget.currentUser['phone'] ?? "No Phone"; // ❌ Removed
     _displayEmail = widget.currentUser['email'] ?? "No Email";
+    _displayEmergencyContact = widget.currentUser['emergencyContact'] ?? "";
 
-    // 2. Load Local Preferences (Notifications/Sound)
     _loadLocalPreferences();
   }
 
@@ -54,8 +52,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setBool(key, value);
   }
 
-  // --- HELPER METHODS ---
-
   String _getInitials(String name) {
     if (name.isEmpty) return "U";
     List<String> parts = name.trim().split(" ");
@@ -65,11 +61,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return name[0].toUpperCase();
   }
 
-  // --- DIALOGS ---
-
   void _showEditProfileDialog() {
     final nameController = TextEditingController(text: _displayName);
-    final phoneController = TextEditingController(text: _displayPhone);
+    // final phoneController = TextEditingController(text: _displayPhone); // ❌ Removed
+    final emergencyController = TextEditingController(
+      text: _displayEmergencyContact,
+    );
 
     showDialog(
       context: context,
@@ -79,21 +76,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           "Edit Profile",
           style: Theme.of(context).textTheme.bodyMedium,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              style: Theme.of(context).textTheme.bodyMedium,
-              decoration: const InputDecoration(labelText: "Full Name"),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: phoneController,
-              style: Theme.of(context).textTheme.bodyMedium,
-              decoration: const InputDecoration(labelText: "Phone Number"),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                style: Theme.of(context).textTheme.bodyMedium,
+                decoration: const InputDecoration(labelText: "Full Name"),
+              ),
+              const SizedBox(height: 10),
+              // ❌ Removed Phone TextField
+              TextField(
+                controller: emergencyController,
+                style: Theme.of(context).textTheme.bodyMedium,
+                decoration: const InputDecoration(
+                  labelText: "Emergency Contact",
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -102,17 +104,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              // 1. Update Database
+              // ✅ Updated updateUser call (No Phone)
               await DatabaseService.instance.updateUser(
                 _displayEmail,
                 nameController.text,
-                phoneController.text,
+                emergencyController.text,
               );
 
-              // 2. Update UI
               setState(() {
                 _displayName = nameController.text;
-                _displayPhone = phoneController.text;
+                _displayEmergencyContact = emergencyController.text;
+                // _displayPhone = phoneController.text; // ❌ Removed
               });
 
               if (mounted) Navigator.pop(context);
@@ -159,7 +161,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Read Dark Mode State from Service
     final isDarkMode = ThemeService.instance.isDarkMode.value;
     final cardColor = Theme.of(context).cardColor;
     final textColor =
@@ -278,13 +279,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      // ❌ Removed Phone InfoBox
+                      // const SizedBox(width: 10),
+                      // Expanded(
+                      //   child: _infoBox(Icons.phone_outlined, "Phone", _displayPhone, Colors.green, context),
+                      // ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
                       Expanded(
                         child: _infoBox(
-                          Icons.phone_outlined,
-                          "Phone",
-                          _displayPhone,
-                          Colors.green,
+                          Icons.contact_emergency_outlined,
+                          "Emergency Contact",
+                          _displayEmergencyContact.isEmpty
+                              ? "Not Set"
+                              : _displayEmergencyContact,
+                          Colors.redAccent,
                           context,
                         ),
                       ),
@@ -362,7 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             const SizedBox(height: 24),
 
-            // 3. PREFERENCES SECTION (Dark Mode)
+            // 3. PREFERENCES SECTION
             _sectionHeader(Icons.settings, "App Preferences", textColor),
             const SizedBox(height: 12),
             Container(
@@ -374,18 +386,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: Column(
                 children: [
-                  _buildSwitchRow(
-                    "Dark Mode",
-                    "Toggle app theme",
-                    isDarkMode, // ✅ Uses Global State
-                    (val) {
-                      setState(() {
-                        // ✅ Updates Global Service
-                        ThemeService.instance.setDarkMode(val);
-                      });
-                    },
-                    textColor,
-                  ),
+                  _buildSwitchRow("Dark Mode", "Toggle app theme", isDarkMode, (
+                    val,
+                  ) {
+                    setState(() {
+                      ThemeService.instance.setDarkMode(val);
+                    });
+                  }, textColor),
                 ],
               ),
             ),
@@ -415,8 +422,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
-  // --- WIDGET BUILDERS ---
 
   Widget _sectionHeader(IconData icon, String title, Color color) {
     return Row(
