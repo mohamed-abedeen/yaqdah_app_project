@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/database_service.dart';
-import '../services/theme_service.dart';
+import '../widgets/edit_profile_modal.dart';
+import '../services/theme_service.dart'; // ✅ Import
 
 class SettingsScreen extends StatefulWidget {
-  final VoidCallback onLogout;
   final Map<String, dynamic> currentUser;
+  final VoidCallback onLogout;
 
   const SettingsScreen({
     super.key,
-    required this.onLogout,
     required this.currentUser,
+    required this.onLogout,
   });
 
   @override
@@ -18,219 +18,119 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late String _displayName;
-  // late String _displayPhone; // ❌ Removed
-  late String _displayEmail;
-  late String _displayEmergencyContact;
-
-  bool _pushNotifications = true;
-  bool _soundAlerts = true;
+  bool _notifications = true;
+  bool _sound = true;
+  bool _vibration = true;
+  bool _autoEmergency = false;
 
   @override
   void initState() {
     super.initState();
-    _displayName = widget.currentUser['fullName'] ?? "Driver";
-    // _displayPhone = widget.currentUser['phone'] ?? "No Phone"; // ❌ Removed
-    _displayEmail = widget.currentUser['email'] ?? "No Email";
-    _displayEmergencyContact = widget.currentUser['emergencyContact'] ?? "";
-
-    _loadLocalPreferences();
+    _loadSettings();
   }
 
-  Future<void> _loadLocalPreferences() async {
+  Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
-        _pushNotifications = prefs.getBool('pushNotifications') ?? true;
-        _soundAlerts = prefs.getBool('soundAlerts') ?? true;
+        _notifications = prefs.getBool('notifications_enabled') ?? true;
+        _sound = prefs.getBool('sound_enabled') ?? true;
+        _vibration = prefs.getBool('vibration_enabled') ?? true;
+        _autoEmergency = prefs.getBool('auto_emergency') ?? false;
       });
     }
   }
 
-  Future<void> _saveLocalPreference(String key, bool value) async {
+  Future<void> _updateSetting(String key, bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
   }
 
-  String _getInitials(String name) {
-    if (name.isEmpty) return "U";
-    List<String> parts = name.trim().split(" ");
-    if (parts.length > 1) {
-      return "${parts[0][0]}${parts[1][0]}".toUpperCase();
-    }
-    return name[0].toUpperCase();
-  }
-
-  void _showEditProfileDialog() {
-    final nameController = TextEditingController(text: _displayName);
-    // final phoneController = TextEditingController(text: _displayPhone); // ❌ Removed
-    final emergencyController = TextEditingController(
-      text: _displayEmergencyContact,
-    );
-
-    showDialog(
+  void _openEditProfile() {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Theme.of(context).cardColor,
-        title: Text(
-          "Edit Profile",
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: Theme.of(context).textTheme.bodyMedium,
-                decoration: const InputDecoration(labelText: "Full Name"),
-              ),
-              const SizedBox(height: 10),
-              // ❌ Removed Phone TextField
-              TextField(
-                controller: emergencyController,
-                style: Theme.of(context).textTheme.bodyMedium,
-                decoration: const InputDecoration(
-                  labelText: "Emergency Contact",
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              // ✅ Updated updateUser call (No Phone)
-              await DatabaseService.instance.updateUser(
-                _displayEmail,
-                nameController.text,
-                emergencyController.text,
-              );
-
-              setState(() {
-                _displayName = nameController.text;
-                _displayEmergencyContact = emergencyController.text;
-                // _displayPhone = phoneController.text; // ❌ Removed
-              });
-
-              if (mounted) Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Profile Updated Successfully")),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).primaryColor,
-            ),
-            child: const Text("Save", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLogoutConfirmation() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(context).cardColor,
-        title: Text("Sign Out", style: Theme.of(context).textTheme.bodyMedium),
-        content: const Text(
-          "Are you sure you want to log out?",
-          style: TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              widget.onLogout();
-            },
-            child: const Text("Sign Out", style: TextStyle(color: Colors.red)),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => EditProfileModal(
+        user: widget.currentUser,
+        onClose: () => Navigator.pop(context),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = ThemeService.instance.isDarkMode.value;
-    final cardColor = Theme.of(context).cardColor;
-    final textColor =
-        Theme.of(context).textTheme.bodyMedium?.color ?? Colors.white;
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.bodyMedium!.color!;
+    final green = theme.primaryColor;
+    final red = theme.colorScheme.error;
+    final purple = ThemeService.purple;
+    final blue = ThemeService.blue;
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Settings",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: textColor,
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "الإعدادات",
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const Text(
-              "Manage your account and preferences",
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
+              const Text(
+                "إدارة حسابك والتطبيق",
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+              const SizedBox(height: 20),
 
-            // 1. PROFILE CARD
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.grey.withOpacity(0.1)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+              // Profile Card
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [green.withOpacity(0.1), Colors.transparent],
                   ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Colors.blue, Colors.purple],
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            _getInitials(_displayName),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                  border: Border.all(color: green.withOpacity(0.3)),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  children: [
+                    Stack(
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                green,
+                                const Color.fromARGB(255, 84, 249, 2),
+                              ],
                             ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Icon(
+                            Icons.person_rounded,
+                            size: 40,
+                            color: Color.fromARGB(255, 0, 0, 0),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Column(
+                        //
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _displayName,
+                            widget.currentUser['fullName'] ?? "User",
                             style: TextStyle(
                               color: textColor,
                               fontSize: 18,
@@ -238,282 +138,290 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           Text(
-                            _displayEmail,
-                            style: TextStyle(
-                              color: Colors.grey[400],
+                            widget.currentUser['email'] ?? "email@example.com",
+                            style: const TextStyle(
+                              color: Colors.grey,
                               fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              "Verified Driver",
+                          const SizedBox(height: 8),
+                          GestureDetector(
+                            onTap: _openEditProfile,
+                            child: Text(
+                              "تعديل الملف الشخصي",
                               style: TextStyle(
-                                color: Colors.green,
-                                fontSize: 10,
+                                color: green,
+                                fontSize: 12,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _infoBox(
-                          Icons.email_outlined,
-                          "Email",
-                          _displayEmail,
-                          Colors.blue,
-                          context,
-                        ),
-                      ),
-                      // ❌ Removed Phone InfoBox
-                      // const SizedBox(width: 10),
-                      // Expanded(
-                      //   child: _infoBox(Icons.phone_outlined, "Phone", _displayPhone, Colors.green, context),
-                      // ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _infoBox(
-                          Icons.contact_emergency_outlined,
-                          "Emergency Contact",
-                          _displayEmergencyContact.isEmpty
-                              ? "Not Set"
-                              : _displayEmergencyContact,
-                          Colors.redAccent,
-                          context,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _showEditProfileDialog,
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: Colors.grey.withOpacity(0.3)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        "Edit Profile",
-                        style: TextStyle(color: textColor),
-                      ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // 2. ALERTS SECTION
-            _sectionHeader(
-              Icons.notifications_none,
-              "Alerts & Notifications",
-              textColor,
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: cardColor.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.grey.withOpacity(0.1)),
-              ),
-              child: Column(
-                children: [
-                  _buildSwitchRow(
-                    "Push Notifications",
-                    "Receive alerts and updates",
-                    _pushNotifications,
-                    (v) {
-                      setState(() => _pushNotifications = v);
-                      _saveLocalPreference('pushNotifications', v);
-                    },
-                    textColor,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Divider(
-                      height: 1,
-                      color: Colors.grey.withOpacity(0.1),
-                    ),
-                  ),
-                  _buildSwitchRow(
-                    "Sound Alerts",
-                    "Audio warnings for drowsiness",
-                    _soundAlerts,
-                    (v) {
-                      setState(() => _soundAlerts = v);
-                      _saveLocalPreference('soundAlerts', v);
-                    },
-                    textColor,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // 3. PREFERENCES SECTION
-            _sectionHeader(Icons.settings, "App Preferences", textColor),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: cardColor.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.grey.withOpacity(0.1)),
-              ),
-              child: Column(
-                children: [
-                  _buildSwitchRow("Dark Mode", "Toggle app theme", isDarkMode, (
-                    val,
-                  ) {
-                    setState(() {
-                      ThemeService.instance.setDarkMode(val);
-                    });
-                  }, textColor),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // 4. LOGOUT BUTTON
-            ListTile(
-              onTap: _showLogoutConfirmation,
-              tileColor: cardColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Colors.grey.withOpacity(0.1)),
-              ),
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text(
-                "Sign Out",
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 100),
-          ],
+              const SizedBox(height: 24),
+
+              _sectionHeader("إعدادات الطوارئ"),
+              _buildSwitchCard(
+                "اتصال طوارئ تلقائي",
+                "عند النعاس الشديد",
+                Icons.warning_amber,
+                red,
+                _autoEmergency,
+                (v) {
+                  setState(() => _autoEmergency = v);
+                  _updateSetting('auto_emergency', v);
+                },
+                theme,
+              ),
+
+              const SizedBox(height: 24),
+
+              _sectionHeader("الإشعارات"),
+              Container(
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: Column(
+                  children: [
+                    _buildSwitchItem(
+                      "تفعيل الإشعارات",
+                      "تنبيهات النعاس والتحذيرات",
+                      Icons.notifications,
+                      green,
+                      _notifications,
+                      (v) {
+                        setState(() => _notifications = v);
+                        _updateSetting('notifications_enabled', v);
+                      },
+                      theme,
+                    ),
+                    if (_notifications) ...[
+                      Divider(color: theme.dividerColor, height: 1),
+                      _buildSwitchItem(
+                        "الصوت",
+                        "",
+                        Icons.volume_up,
+                        blue,
+                        _sound,
+                        (v) {
+                          setState(() => _sound = v);
+                          _updateSetting('sound_enabled', v);
+                        },
+                        theme,
+                      ),
+                      _buildSwitchItem(
+                        "الاهتزاز",
+                        "",
+                        Icons.vibration,
+                        purple,
+                        _vibration,
+                        (v) {
+                          setState(() => _vibration = v);
+                          _updateSetting('vibration_enabled', v);
+                        },
+                        theme,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              _sectionHeader("إعدادات التطبيق"),
+              ValueListenableBuilder<bool>(
+                valueListenable: ThemeService.instance.isDarkMode,
+                builder: (context, isDark, child) {
+                  return _buildSwitchCard(
+                    "المظهر الداكن",
+                    "تغيير مظهر التطبيق",
+                    Icons.dark_mode,
+                    Colors.yellow,
+                    isDark,
+                    (v) => ThemeService.instance.toggleTheme(),
+                    theme,
+                  );
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              _sectionHeader("منطقة الخطر"),
+              _buildActionCard(
+                "تسجيل الخروج",
+                Icons.logout,
+                red,
+                widget.onLogout,
+              ),
+
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _sectionHeader(IconData icon, String title, Color color) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.red.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: Colors.redAccent, size: 16),
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, right: 4),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.grey,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
         ),
-        const SizedBox(width: 10),
-        Text(
-          title,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _infoBox(
+  Widget _buildSwitchCard(
+    String title,
+    String subtitle,
     IconData icon,
-    String label,
-    String value,
-    Color iconColor,
-    BuildContext context,
+    Color color,
+    bool value,
+    Function(bool) onChanged,
+    ThemeData theme,
   ) {
-    final bg = Theme.of(context).scaffoldBackgroundColor;
-    final textCol = Theme.of(context).textTheme.bodyMedium?.color;
-
+    final green = theme.primaryColor;
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.dividerColor),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Icon(icon, size: 18, color: iconColor),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-          Text(
-            value,
-            style: TextStyle(
-              color: textCol,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              overflow: TextOverflow.ellipsis,
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
             ),
-            maxLines: 1,
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: theme.textTheme.bodyMedium!.color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.grey, fontSize: 10),
+                  ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: green,
+            activeTrackColor: green.withOpacity(0.3),
+            inactiveThumbColor: Colors.white,
+            inactiveTrackColor: theme.dividerColor,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSwitchRow(
+  Widget _buildSwitchItem(
     String title,
     String subtitle,
+    IconData icon,
+    Color color,
     bool value,
     Function(bool) onChanged,
-    Color textColor,
+    ThemeData theme,
   ) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    final green = theme.primaryColor;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: theme.textTheme.bodyMedium!.color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.grey, fontSize: 10),
+                  ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: green,
+            activeTrackColor: green.withOpacity(0.3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard(
+    String title,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 10),
             Text(
               title,
-              style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
-            ),
-            Text(
-              subtitle,
-              style: const TextStyle(color: Colors.grey, fontSize: 11),
+              style: TextStyle(color: color, fontWeight: FontWeight.bold),
             ),
           ],
         ),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: Colors.white,
-          activeTrackColor: Theme.of(context).primaryColor,
-        ),
-      ],
+      ),
     );
   }
 }

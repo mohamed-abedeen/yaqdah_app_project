@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'screens/home_screen.dart'; // ✅ FIXED: Added Import
-import 'screens/login_screen.dart';
+import 'screens/home_screen.dart'; // ✅ Imports HomeScreen class
 import 'services/theme_service.dart';
-import 'services/database_service.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -41,8 +38,8 @@ class _YaqdahAppState extends State<YaqdahApp> {
           theme: ThemeService.instance.lightTheme,
           darkTheme: ThemeService.instance.darkTheme,
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-          // ✅ FIXED: Correctly referencing Homescreen
-          home: Homescreen(cameras: cameras),
+          // ✅ FIXED: Using standard naming 'HomeScreen'
+          home: HomeScreen(cameras: cameras),
         );
       },
     );

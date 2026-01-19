@@ -16,15 +16,15 @@ import '../services/gemini_service.dart';
 import '../services/location_sms_service.dart';
 import '../services/theme_service.dart';
 
-class Homescreen extends StatefulWidget {
+class HomeScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
-  const Homescreen({super.key, required this.cameras});
+  const HomeScreen({super.key, required this.cameras});
 
   @override
-  State<Homescreen> createState() => _HomescreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomescreenState extends State<Homescreen> {
+class _HomeScreenState extends State<HomeScreen> {
   bool _isAuthenticated = false;
   bool _isLoading = true;
   Map<String, dynamic> _currentUser = {};
@@ -36,7 +36,7 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   Future<void> _initApp() async {
-    await ThemeService.instance.init();
+    // ThemeService is already init in main.dart, but harmless to double check
     final prefs = await SharedPreferences.getInstance();
     final String? email = prefs.getString('user_email');
     if (email != null) {
@@ -72,34 +72,20 @@ class _HomescreenState extends State<Homescreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Scaffold(
-          backgroundColor: Color(0xFF0F172A),
-          body: Center(child: CircularProgressIndicator()),
-        ),
+      return const Scaffold(
+        backgroundColor: Color(0xFF0F172A),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: ThemeService.instance.isDarkMode,
-      builder: (context, isDark, child) {
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: 'Yaqdah',
-          theme: ThemeService.instance.lightTheme,
-          darkTheme: ThemeService.instance.darkTheme,
-          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-          home: _isAuthenticated
-              ? MainLayout(
-                  cameras: widget.cameras,
-                  onLogout: _logout,
-                  currentUser: _currentUser,
-                )
-              : LoginScreen(onLogin: _login),
-        );
-      },
-    );
+    // ✅ FIXED: Removed nested MaterialApp. Now returns widgets directly.
+    return _isAuthenticated
+        ? MainLayout(
+            cameras: widget.cameras,
+            onLogout: _logout,
+            currentUser: _currentUser,
+          )
+        : LoginScreen(onLogin: _login);
   }
 }
 
@@ -122,8 +108,8 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
   final GlobalKey<CameraFeedState> _cameraKey = GlobalKey();
+  final GlobalKey<DashboardUIState> _dashboardKey = GlobalKey();
 
-  // Logic State
   LatLng? _currentLocation;
   bool _isMonitoring = false;
   String _status = "IDLE";
@@ -216,6 +202,13 @@ class _MainLayoutState extends State<MainLayout> {
     }
   }
 
+  void _handlePlaceSelected(LatLng destination) {
+    setState(() => _currentIndex = 0);
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _dashboardKey.currentState?.startNavigation(destination);
+    });
+  }
+
   @override
   void dispose() {
     _audio.dispose();
@@ -224,15 +217,12 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 1. Access the dynamic theme data
-    final theme = Theme.of(context);
+    final theme = Theme.of(context); // ✅ Theme now comes from main.dart
     final isDark = theme.brightness == Brightness.dark;
 
     final List<Widget> screens = [
-      // ✅ Main Layout with Hidden Camera
       Stack(
         children: [
-          // 1. HIDDEN Camera Feed
           Offstage(
             offstage: true,
             child: CameraFeed(
@@ -244,9 +234,8 @@ class _MainLayoutState extends State<MainLayout> {
               onCameraChanged: _updateCameraName,
             ),
           ),
-
-          // 2. Full Screen Dashboard
           DashboardUI(
+            key: _dashboardKey,
             onLocationUpdate: (loc) => _currentLocation = loc,
             isMonitoring: _isMonitoring,
             status: _status,
@@ -259,16 +248,12 @@ class _MainLayoutState extends State<MainLayout> {
             currentCameraName: _currentCameraName,
             onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
           ),
-
-          // 3. Floating Mic Button
           Positioned(
             bottom: 110,
             right: 20,
             child: FloatingActionButton(
               heroTag: "mic",
-              backgroundColor: _isListening
-                  ? Colors.red
-                  : theme.primaryColor, // ✅ Use theme primary color
+              backgroundColor: _isListening ? Colors.red : theme.primaryColor,
               onPressed: _toggleListening,
               child: Icon(_isListening ? Icons.mic_off : Icons.mic),
             ),
@@ -277,7 +262,7 @@ class _MainLayoutState extends State<MainLayout> {
       ),
       const ReportsScreen(),
       RestScreen(
-        onPlaceSelected: (dest) {},
+        onPlaceSelected: _handlePlaceSelected,
         getCurrentLocation: () =>
             _currentLocation ?? const LatLng(32.8872, 13.1913),
       ),
@@ -287,8 +272,6 @@ class _MainLayoutState extends State<MainLayout> {
       ),
     ];
 
-    // ✅ 2. Dynamic Colors for Navigation Bar
-    // Using cardColor ensures it matches the panels in your theme
     final navBarColor = theme.cardColor.withOpacity(isDark ? 0.8 : 0.95);
     final navBarBorder = theme.dividerColor;
 
@@ -296,18 +279,7 @@ class _MainLayoutState extends State<MainLayout> {
       extendBody: true,
       body: Container(
         decoration: BoxDecoration(
-          // ✅ 3. Dynamic Gradient Background
-          gradient: LinearGradient(
-            colors: [
-              theme.scaffoldBackgroundColor, // Start color
-              isDark
-                  ? theme.colorScheme.secondary
-                  : theme.dividerColor, // Middle accent
-              theme.scaffoldBackgroundColor, // End color
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          color: theme.scaffoldBackgroundColor, // ✅ Clean dynamic BG
         ),
         child: IndexedStack(index: _currentIndex, children: screens),
       ),
@@ -320,11 +292,9 @@ class _MainLayoutState extends State<MainLayout> {
             child: Container(
               height: 70,
               decoration: BoxDecoration(
-                color: navBarColor, // ✅ Applied dynamic color
+                color: navBarColor,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: navBarBorder,
-                ), // ✅ Applied dynamic border
+                border: Border.all(color: navBarBorder),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -344,7 +314,6 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _navItem(IconData icon, String label, int index) {
     bool isSelected = _currentIndex == index;
-    // ✅ 4. Dynamic item colors
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final activeColor = theme.primaryColor;

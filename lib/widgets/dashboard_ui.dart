@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui'; // Required for BackdropFilter
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,20 +8,13 @@ import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import '../services/database_service.dart';
 import '../services/location_sms_service.dart';
+import '../services/theme_service.dart'; // ✅ Import ThemeService
 
-// ⚠️ PASTE YOUR MAPBOX TOKEN HERE
 const String _mapboxAccessToken =
     'pk.eyJ1IjoibW9ob3oiLCJhIjoiY21rNng0eTBhMG1tejNmc2hkZjg2djg5cSJ9.EhZ_hhGrpAGJRb1j-O5eIw';
-
-// 🎨 EXACT COLORS FROM YOUR REACT DESIGN
-const Color kNeonGreen = Color(0xFF00FF7F);
-const Color kDarkOrange = Color(0xFFFF8C00);
-const Color kDangerRed = Color(0xFFFF3B30);
-const Color kPurple = Color(0xFF8B5CF6);
-const Color kDarkSurface = Color(0xFF2A2A2A); // For Stats Cards
-const Color kDarkBorder = Color(0xFF3A3A3A);
 
 class DashboardUI extends StatefulWidget {
   final Function(LatLng) onLocationUpdate;
@@ -50,10 +43,10 @@ class DashboardUI extends StatefulWidget {
   });
 
   @override
-  State<DashboardUI> createState() => _DashboardUIState();
+  State<DashboardUI> createState() => DashboardUIState();
 }
 
-class _DashboardUIState extends State<DashboardUI>
+class DashboardUIState extends State<DashboardUI>
     with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
   final LocationSmsService _smsService = LocationSmsService();
@@ -77,11 +70,15 @@ class _DashboardUIState extends State<DashboardUI>
   bool _tripSessionActive = false;
   StreamSubscription<Position>? _positionStreamSubscription;
 
-  // Search Logic
+  DateTime? _tripStartTime;
+  double _totalDistanceTraveled = 0.0;
+  double _maxSpeed = 0.0;
+  double _sumSpeed = 0.0;
+  int _speedSamples = 0;
+
   bool _isSearching = false;
   List<dynamic> _searchResults = [];
 
-  // Trip Events Logic
   List<String> _tripEvents = [];
   bool _hasDangerousEvents = false;
 
@@ -90,6 +87,20 @@ class _DashboardUIState extends State<DashboardUI>
     super.initState();
     _startTripTimer();
     _startLiveLocationUpdates();
+  }
+
+  @override
+  void didUpdateWidget(DashboardUI oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_tripSessionActive && widget.status != oldWidget.status) {
+      final now = DateTime.now().toIso8601String();
+      if (widget.status == "DROWSY") {
+        _tripEvents.add("$now: ⚠️ Drowsiness Detected");
+      } else if (widget.status == "ASLEEP" || widget.status == "DISTRACTED") {
+        _tripEvents.add("$now: 🚨 Danger: ${widget.status}");
+        setState(() => _hasDangerousEvents = true);
+      }
+    }
   }
 
   void _startTripTimer() {
@@ -105,6 +116,8 @@ class _DashboardUIState extends State<DashboardUI>
     if (!serviceEnabled) return;
     await Permission.location.request();
 
+    LatLng? lastPos;
+
     _positionStreamSubscription =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
@@ -115,22 +128,41 @@ class _DashboardUIState extends State<DashboardUI>
           if (!mounted) return;
           final newLatLong = LatLng(position.latitude, position.longitude);
 
-          String newDist = _tripDistanceDisplay;
+          double speedKmh = position.speed * 3.6;
+          if (speedKmh < 3.0) speedKmh = 0.0;
+
+          if (_tripSessionActive) {
+            _maxSpeed = math.max(_maxSpeed, speedKmh);
+            if (speedKmh > 0) {
+              _sumSpeed += speedKmh;
+              _speedSamples++;
+            }
+            if (lastPos != null) {
+              double dist = _distanceCalculator.as(
+                LengthUnit.Meter,
+                lastPos!,
+                newLatLong,
+              );
+              if (dist > 5) _totalDistanceTraveled += dist;
+            }
+          }
+          lastPos = newLatLong;
+
+          String newDistDisplay = _tripDistanceDisplay;
           if (_destination != null) {
             double meters = _distanceCalculator.as(
               LengthUnit.Meter,
               newLatLong,
               _destination!,
             );
-            newDist = (meters / 1000).toStringAsFixed(1);
+            newDistDisplay = (meters / 1000).toStringAsFixed(1);
+          } else {
+            newDistDisplay = (_totalDistanceTraveled / 1000).toStringAsFixed(1);
           }
-
-          double speedKmh = position.speed * 3.6;
-          if (speedKmh < 0) speedKmh = 0;
 
           setState(() {
             _currentLocation = newLatLong;
-            _tripDistanceDisplay = newDist;
+            _tripDistanceDisplay = newDistDisplay;
             _currentSpeed = speedKmh;
             if (position.speed > 0.5) _currentHeading = position.heading;
           });
@@ -140,8 +172,6 @@ class _DashboardUIState extends State<DashboardUI>
         });
   }
 
-  // --- Logic Helpers ---
-
   String _formatTime(int totalSeconds) {
     int hours = totalSeconds ~/ 3600;
     int minutes = (totalSeconds % 3600) ~/ 60;
@@ -150,11 +180,10 @@ class _DashboardUIState extends State<DashboardUI>
   }
 
   void _toggleTrip() {
-    if (widget.isMonitoring) {
+    if (widget.isMonitoring)
       _endTrip();
-    } else {
+    else
       _startTrip();
-    }
   }
 
   void _startTrip() {
@@ -163,21 +192,36 @@ class _DashboardUIState extends State<DashboardUI>
       _tripEvents = [];
       _hasDangerousEvents = false;
       _tripEvents.add("${DateTime.now().toIso8601String()}: 🏁 Trip Started");
+      _tripStartTime = DateTime.now();
+      _maxSpeed = 0.0;
+      _sumSpeed = 0.0;
+      _speedSamples = 0;
+      _totalDistanceTraveled = 0.0;
+      _tripDurationSeconds = 0;
     });
     widget.onToggleMonitoring();
   }
 
-  void _endTrip() {
+  void _endTrip() async {
     _tripEvents.add("${DateTime.now().toIso8601String()}: 🛑 Trip Ended");
     String finalStatus = _hasDangerousEvents || widget.drowsinessLevel > 50
         ? "Drowsy"
         : "Safe";
+    if (_tripEvents.any((e) => e.contains("Manual SOS")))
+      finalStatus = "Emergency";
 
-    DatabaseService.instance.saveTrip(
-      _formatTime(_tripDurationSeconds),
-      "$_tripDistanceDisplay km",
-      finalStatus,
-      _tripEvents,
+    final endTime = DateTime.now();
+    final avgSpeed = _speedSamples > 0 ? (_sumSpeed / _speedSamples) : 0.0;
+
+    await DatabaseService.instance.saveTrip(
+      duration: _formatTime(_tripDurationSeconds),
+      distance: "${(_totalDistanceTraveled / 1000).toStringAsFixed(1)} km",
+      status: finalStatus,
+      alerts: _tripEvents,
+      startTime: DateFormat('hh:mm a').format(_tripStartTime ?? endTime),
+      endTime: DateFormat('hh:mm a').format(endTime),
+      avgSpeed: "${avgSpeed.toStringAsFixed(1)} km/h",
+      maxSpeed: "${_maxSpeed.toStringAsFixed(1)} km/h",
     );
 
     widget.onToggleMonitoring();
@@ -185,6 +229,7 @@ class _DashboardUIState extends State<DashboardUI>
       _tripSessionActive = false;
       _tripDurationSeconds = 0;
       _tripDistanceDisplay = "0.0";
+      _totalDistanceTraveled = 0.0;
     });
   }
 
@@ -194,31 +239,7 @@ class _DashboardUIState extends State<DashboardUI>
     _smsService.sendEmergencyAlert();
   }
 
-  // --- Search & Navigation Logic ---
-
-  Future<void> _performSearch(String query, StateSetter setModalState) async {
-    if (query.isEmpty) return;
-    setModalState(() => _isSearching = true);
-
-    final url = Uri.parse(
-      "https://api.mapbox.com/geocoding/v5/mapbox.places/$query.json?access_token=$_mapboxAccessToken&autocomplete=true&limit=5&country=LY",
-    );
-
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setModalState(() {
-          _searchResults = data['features'];
-          _isSearching = false;
-        });
-      }
-    } catch (e) {
-      setModalState(() => _isSearching = false);
-    }
-  }
-
-  void _navigateToDestination(LatLng dest) async {
+  void startNavigation(LatLng dest) async {
     setState(() {
       _destination = dest;
       _isRouteLoading = true;
@@ -234,12 +255,10 @@ class _DashboardUIState extends State<DashboardUI>
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final route = data['routes'][0];
-
         final List coords = route['geometry']['coordinates'];
         final points = coords
             .map((c) => LatLng(c[1].toDouble(), c[0].toDouble()))
             .toList();
-
         final double durationSeconds = route['duration'];
         final int minutes = (durationSeconds / 60).round();
         final int hours = minutes ~/ 60;
@@ -268,11 +287,32 @@ class _DashboardUIState extends State<DashboardUI>
     });
   }
 
+  void _performSearch(String query, StateSetter setModalState) async {
+    if (query.isEmpty) return;
+    setModalState(() => _isSearching = true);
+    final url = Uri.parse(
+      "https://api.mapbox.com/geocoding/v5/mapbox.places/$query.json?access_token=$_mapboxAccessToken&autocomplete=true&limit=5&country=LY",
+    );
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setModalState(() {
+          _searchResults = data['features'];
+          _isSearching = false;
+        });
+      }
+    } catch (e) {
+      setModalState(() => _isSearching = false);
+    }
+  }
+
   void _openSearchSheet() {
+    final theme = Theme.of(context); // ✅ Get theme
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).cardColor,
+      backgroundColor: theme.cardColor,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
@@ -283,23 +323,21 @@ class _DashboardUIState extends State<DashboardUI>
                 children: [
                   TextField(
                     controller: _searchController,
-                    style: Theme.of(context).textTheme.bodyMedium,
+                    style: theme.textTheme.bodyMedium, // ✅ Dynamic Text Color
                     decoration: InputDecoration(
                       hintText: "Search destination...",
-                      hintStyle: Theme.of(context).textTheme.bodySmall,
-                      prefixIcon: Icon(
-                        Icons.search,
-                        color: Theme.of(context).primaryColor,
-                      ),
+                      hintStyle: TextStyle(color: Colors.grey),
+                      prefixIcon: Icon(Icons.search, color: theme.primaryColor),
                       filled: true,
-                      fillColor: Theme.of(context).scaffoldBackgroundColor,
+                      fillColor:
+                          theme.scaffoldBackgroundColor, // ✅ Dynamic Input BG
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           Icons.arrow_forward,
-                          color: Theme.of(context).primaryColor,
+                          color: theme.primaryColor,
                         ),
                         onPressed: () => _performSearch(
                           _searchController.text,
@@ -311,9 +349,7 @@ class _DashboardUIState extends State<DashboardUI>
                   ),
                   const SizedBox(height: 10),
                   if (_isSearching)
-                    LinearProgressIndicator(
-                      color: Theme.of(context).primaryColor,
-                    ),
+                    LinearProgressIndicator(color: theme.primaryColor),
                   Expanded(
                     child: ListView.builder(
                       itemCount: _searchResults.length,
@@ -322,18 +358,18 @@ class _DashboardUIState extends State<DashboardUI>
                         return ListTile(
                           title: Text(
                             result['text'] ?? "",
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            style: theme.textTheme.bodyMedium,
                           ),
                           subtitle: Text(
                             result['place_name'] ?? "",
                             maxLines: 1,
-                            style: Theme.of(context).textTheme.bodySmall,
+                            style: TextStyle(color: Colors.grey),
                           ),
                           onTap: () {
                             double lon = result['center'][0];
                             double lat = result['center'][1];
                             Navigator.pop(context);
-                            _navigateToDestination(LatLng(lat, lon));
+                            startNavigation(LatLng(lat, lon));
                           },
                         );
                       },
@@ -348,29 +384,30 @@ class _DashboardUIState extends State<DashboardUI>
     );
   }
 
-  // Helper to match React 'statusConfig'
   Map<String, dynamic> _getStatusConfig() {
+    final red = ThemeService.red;
+    final orange = ThemeService.orange;
+    final green = Theme.of(context).primaryColor;
+
     if (widget.status == "ASLEEP" || widget.status == "DISTRACTED") {
       return {
-        'color': kDangerRed,
-        'bgColor': kDangerRed.withOpacity(0.2), // React: bg-[#FF3B30]/20
-        'borderColor': kDangerRed.withOpacity(
-          0.5,
-        ), // React: border-[#FF3B30]/50
+        'color': red,
+        'bgColor': red.withOpacity(0.2),
+        'borderColor': red.withOpacity(0.5),
         'text': "خطر - توقف فوراً!",
       };
     } else if (widget.status == "DROWSY") {
       return {
-        'color': kDarkOrange,
-        'bgColor': kDarkOrange.withOpacity(0.2),
-        'borderColor': kDarkOrange.withOpacity(0.5),
+        'color': orange,
+        'bgColor': orange.withOpacity(0.2),
+        'borderColor': orange.withOpacity(0.5),
         'text': "نعسان",
       };
     } else {
       return {
-        'color': kNeonGreen,
-        'bgColor': kNeonGreen.withOpacity(0.2),
-        'borderColor': kNeonGreen.withOpacity(0.5),
+        'color': green,
+        'bgColor': green.withOpacity(0.2),
+        'borderColor': green.withOpacity(0.5),
         'text': "يقظ ومستيقظ",
       };
     }
@@ -378,7 +415,10 @@ class _DashboardUIState extends State<DashboardUI>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final theme = Theme.of(context); // ✅ Get Current Theme
+    final isDark = theme.brightness == Brightness.dark;
+    final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+
     final statusConfig = _getStatusConfig();
 
     return SafeArea(
@@ -386,7 +426,6 @@ class _DashboardUIState extends State<DashboardUI>
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
         child: Column(
           children: [
-            // 1. Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -396,40 +435,34 @@ class _DashboardUIState extends State<DashboardUI>
                     Text(
                       "يقظة",
                       style: theme.textTheme.titleLarge?.copyWith(
-                        fontSize: 22, // Reduced from 24
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
                       "نظام كشف النعاس للسائقين",
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: subColor, fontSize: 12),
                     ),
                   ],
                 ),
                 Container(
-                  width: 40, // Reduced from 48
+                  width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: kNeonGreen.withOpacity(0.2),
+                    color: theme.primaryColor.withOpacity(0.2),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.remove_red_eye,
-                    color: kNeonGreen,
-                    size: 20, // Smaller icon
+                    color: theme.primaryColor,
+                    size: 20,
                   ),
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            // 2. Map Area
             SizedBox(
-              height: 220, // Slightly more compact
+              height: 220,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(
@@ -489,19 +522,14 @@ class _DashboardUIState extends State<DashboardUI>
                         ),
                       ],
                     ),
-
-                    // Search Button (Top Left)
                     Positioned(
                       top: 10,
                       left: 10,
                       child: _smallMapButton(
                         icon: Icons.search,
                         onTap: _openSearchSheet,
-                        theme: theme,
                       ),
                     ),
-
-                    // Recenter Button (Bottom Right)
                     Positioned(
                       bottom: 10,
                       right: 10,
@@ -512,10 +540,8 @@ class _DashboardUIState extends State<DashboardUI>
                           _mapController.move(_currentLocation, 18.0);
                         },
                         isActive: _isAutoFollowing,
-                        theme: theme,
                       ),
                     ),
-
                     if (_destination != null)
                       Positioned(
                         top: 10,
@@ -524,25 +550,20 @@ class _DashboardUIState extends State<DashboardUI>
                           icon: Icons.close,
                           onTap: _clearNavigation,
                           isDanger: true,
-                          theme: theme,
                         ),
                       ),
                   ],
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
 
-            // 3. Driver Status Card (Compact Version)
             ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                 child: Container(
-                  padding: const EdgeInsets.all(
-                    16,
-                  ), // ✅ Reduced Padding (was 24)
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: statusConfig['bgColor'],
                     border: Border.all(
@@ -553,9 +574,8 @@ class _DashboardUIState extends State<DashboardUI>
                   ),
                   child: Row(
                     children: [
-                      // Icon Box
                       Container(
-                        width: 48, // ✅ Reduced size (was 64)
+                        width: 48,
                         height: 48,
                         decoration: BoxDecoration(
                           color: statusConfig['bgColor'],
@@ -567,28 +587,23 @@ class _DashboardUIState extends State<DashboardUI>
                         child: Icon(
                           Icons.remove_red_eye,
                           color: statusConfig['color'],
-                          size: 24, // ✅ Reduced icon size
+                          size: 24,
                         ),
                       ),
                       const SizedBox(width: 12),
-
-                      // Status Text
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               "حالة السائق",
-                              style: TextStyle(
-                                color: Colors.grey[400],
-                                fontSize: 11,
-                              ),
+                              style: TextStyle(color: subColor, fontSize: 11),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               statusConfig['text'],
                               style: TextStyle(
-                                fontSize: 18, // ✅ Reduced font size (was 22)
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
                                 color: statusConfig['color'],
                               ),
@@ -598,24 +613,19 @@ class _DashboardUIState extends State<DashboardUI>
                           ],
                         ),
                       ),
-
-                      // Percentage
                       Column(
                         children: [
                           Text(
                             "${widget.drowsinessLevel.toInt()}%",
                             style: TextStyle(
-                              fontSize: 28, // ✅ Reduced font size (was 36)
+                              fontSize: 28,
                               fontWeight: FontWeight.bold,
                               color: statusConfig['color'],
                             ),
                           ),
                           Text(
                             "مستوى النعاس",
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey[400],
-                            ),
+                            style: TextStyle(fontSize: 10, color: subColor),
                           ),
                         ],
                       ),
@@ -627,16 +637,15 @@ class _DashboardUIState extends State<DashboardUI>
 
             const SizedBox(height: 12),
 
-            // 4. Control Buttons (Compact Height)
             SizedBox(
-              height: 80, // ✅ Reduced height (was 100)
+              height: 80,
               child: Row(
                 children: [
                   Expanded(
                     child: _buildGlassButton(
                       label: "طوارئ",
                       icon: Icons.phone,
-                      color: kDangerRed,
+                      color: ThemeService.red,
                       onTap: _triggerSOSManual,
                     ),
                   ),
@@ -647,7 +656,9 @@ class _DashboardUIState extends State<DashboardUI>
                       icon: widget.isMonitoring
                           ? Icons.stop_rounded
                           : Icons.play_arrow_rounded,
-                      color: widget.isMonitoring ? kDarkOrange : kNeonGreen,
+                      color: widget.isMonitoring
+                          ? ThemeService.orange
+                          : theme.primaryColor,
                       onTap: _toggleTrip,
                     ),
                   ),
@@ -657,7 +668,7 @@ class _DashboardUIState extends State<DashboardUI>
                       label: "كاميرا",
                       subLabel: widget.currentCameraName,
                       icon: Icons.cameraswitch,
-                      color: kPurple,
+                      color: ThemeService.purple,
                       onTap: widget.onSwitchCamera,
                     ),
                   ),
@@ -667,7 +678,6 @@ class _DashboardUIState extends State<DashboardUI>
 
             const SizedBox(height: 12),
 
-            // 5. Bottom Stats Grid (Compact)
             Column(
               children: [
                 Row(
@@ -677,7 +687,8 @@ class _DashboardUIState extends State<DashboardUI>
                         Icons.access_time,
                         "المدة",
                         _formatTime(_tripDurationSeconds),
-                        kNeonGreen,
+                        theme.primaryColor,
+                        unit: "",
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -686,7 +697,7 @@ class _DashboardUIState extends State<DashboardUI>
                         Icons.location_on,
                         "المسافة",
                         _tripDistanceDisplay,
-                        Colors.blue,
+                        ThemeService.blue,
                         unit: "كم",
                       ),
                     ),
@@ -700,7 +711,7 @@ class _DashboardUIState extends State<DashboardUI>
                         Icons.speed,
                         "السرعة",
                         "${_currentSpeed.toInt()}",
-                        kPurple,
+                        ThemeService.purple,
                         unit: "كم/س",
                       ),
                     ),
@@ -710,7 +721,8 @@ class _DashboardUIState extends State<DashboardUI>
                         Icons.navigation,
                         "الوصول",
                         _etaDisplay,
-                        kDarkOrange,
+                        ThemeService.orange,
+                        unit: "",
                       ),
                     ),
                   ],
@@ -725,20 +737,19 @@ class _DashboardUIState extends State<DashboardUI>
     );
   }
 
-  // --- Widget Helpers ---
-
+  // ✅ UPDATED: Use Theme.of(context) inside helpers
   Widget _smallMapButton({
     required IconData icon,
     required VoidCallback onTap,
     bool isActive = false,
     bool isDanger = false,
-    required ThemeData theme,
   }) {
+    final theme = Theme.of(context);
     return InkWell(
       onTap: onTap,
       child: Container(
         width: 32,
-        height: 32, // Smaller map buttons
+        height: 32,
         decoration: BoxDecoration(
           color: isDanger
               ? Colors.redAccent
@@ -762,6 +773,9 @@ class _DashboardUIState extends State<DashboardUI>
     required Color color,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
@@ -770,29 +784,32 @@ class _DashboardUIState extends State<DashboardUI>
           onTap: onTap,
           child: Container(
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              border: Border.all(color: color.withOpacity(0.4)),
+              // In Light mode, make buttons simpler, Dark mode uses glass
+              color: isDark ? color.withOpacity(0.15) : theme.cardColor,
+              border: Border.all(
+                color: isDark ? color.withOpacity(0.4) : theme.dividerColor,
+              ),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, color: color, size: 20), // ✅ Smaller Icon
+                Icon(icon, color: color, size: 20),
                 const SizedBox(height: 6),
                 Text(
                   label,
                   style: TextStyle(
-                    color: color,
+                    color: isDark ? color : Colors.black,
                     fontWeight: FontWeight.w500,
-                    fontSize: 11, // ✅ Smaller Text
+                    fontSize: 11,
                   ),
                 ),
                 if (subLabel != null)
                   Text(
                     subLabel,
                     style: TextStyle(
-                      color: color.withOpacity(0.7),
-                      fontSize: 9, // ✅ Smaller Subtext
+                      color: isDark ? color.withOpacity(0.7) : Colors.grey,
+                      fontSize: 9,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -810,16 +827,17 @@ class _DashboardUIState extends State<DashboardUI>
     String label,
     String value,
     Color iconColor, {
-    String? unit,
+    required String unit,
   }) {
+    final theme = Theme.of(context); // ✅ Dynamic Theme
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.textTheme.bodyMedium!.color;
+
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 12,
-      ), // Compact padding
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: kDarkSurface,
-        border: Border.all(color: kDarkBorder),
+        color: theme.cardColor, // ✅ Changed from hardcoded
+        border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -831,7 +849,10 @@ class _DashboardUIState extends State<DashboardUI>
               const SizedBox(width: 6),
               Text(
                 label,
-                style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  fontSize: 11,
+                ),
               ),
             ],
           ),
@@ -842,17 +863,20 @@ class _DashboardUIState extends State<DashboardUI>
             children: [
               Text(
                 value,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20, // Reduced from 24
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (unit != null) ...[
+              if (unit.isNotEmpty) ...[
                 const SizedBox(width: 4),
                 Text(
                   unit,
-                  style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ],

@@ -19,17 +19,16 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    // ✅ Version increased to 4 (Phone number removed)
+    // ✅ Version increased to 5 for new "True Value" columns
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
-    // ✅ Removed 'phone' column
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,6 +39,7 @@ class DatabaseService {
       )
     ''');
 
+    // ✅ Initial table now includes all required columns
     await db.execute('''
       CREATE TABLE trips (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +47,11 @@ class DatabaseService {
         duration TEXT NOT NULL,
         distance TEXT NOT NULL,
         status TEXT NOT NULL,
-        alerts TEXT
+        alerts TEXT,
+        startTime TEXT,
+        endTime TEXT,
+        avgSpeed TEXT,
+        maxSpeed TEXT
       )
     ''');
   }
@@ -59,8 +63,13 @@ class DatabaseService {
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE users ADD COLUMN emergencyContact TEXT');
     }
-    // Note: SQLite does not support dropping columns easily in ALTER TABLE.
-    // The 'phone' column will remain for old users but be ignored by the code.
+    // ✅ Migration to Version 5: Adding True Value columns
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE trips ADD COLUMN startTime TEXT');
+      await db.execute('ALTER TABLE trips ADD COLUMN endTime TEXT');
+      await db.execute('ALTER TABLE trips ADD COLUMN avgSpeed TEXT');
+      await db.execute('ALTER TABLE trips ADD COLUMN maxSpeed TEXT');
+    }
   }
 
   String _hashPassword(String password) {
@@ -69,7 +78,6 @@ class DatabaseService {
     return digest.toString();
   }
 
-  // ✅ Removed 'phone' parameter
   Future<bool> registerUser(
     String email,
     String password,
@@ -84,7 +92,6 @@ class DatabaseService {
         'password': hashedPassword,
         'fullName': fullName,
         'emergencyContact': emergencyContact,
-        // 'phone': phone, // ❌ Removed
       });
       return true;
     } catch (e) {
@@ -113,7 +120,6 @@ class DatabaseService {
     return result.isNotEmpty ? result.first : null;
   }
 
-  // ✅ Removed 'newPhone' parameter
   Future<int> updateUser(
     String email,
     String newName,
@@ -122,22 +128,23 @@ class DatabaseService {
     final db = await instance.database;
     return await db.update(
       'users',
-      {
-        'fullName': newName,
-        'emergencyContact': newEmergency,
-        // 'phone': newPhone // ❌ Removed
-      },
+      {'fullName': newName, 'emergencyContact': newEmergency},
       where: 'email = ?',
       whereArgs: [email],
     );
   }
 
-  Future<void> saveTrip(
-    String duration,
-    String distance,
-    String status,
-    List<String> alerts,
-  ) async {
+  // ✅ UPDATED: Accept and save all true value data points
+  Future<void> saveTrip({
+    required String duration,
+    required String distance,
+    required String status,
+    required List<String> alerts,
+    required String startTime,
+    required String endTime,
+    required String avgSpeed,
+    required String maxSpeed,
+  }) async {
     final db = await instance.database;
     await db.insert('trips', {
       'date': DateTime.now().toIso8601String(),
@@ -145,11 +152,20 @@ class DatabaseService {
       'distance': distance,
       'status': status,
       'alerts': jsonEncode(alerts),
+      'startTime': startTime,
+      'endTime': endTime,
+      'avgSpeed': avgSpeed,
+      'maxSpeed': maxSpeed,
     });
   }
 
   Future<List<Map<String, dynamic>>> getTrips() async {
     final db = await instance.database;
     return await db.query('trips', orderBy: 'date DESC');
+  }
+
+  Future<int> deleteTrip(int id) async {
+    final db = await instance.database;
+    return await db.delete('trips', where: 'id = ?', whereArgs: [id]);
   }
 }

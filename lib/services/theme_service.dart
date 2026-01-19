@@ -2,183 +2,71 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeService {
-  static final ThemeService instance = ThemeService._init();
-  ThemeService._init();
+  static final ThemeService instance = ThemeService._internal();
+  factory ThemeService() => instance;
+  ThemeService._internal();
 
-  final ValueNotifier<bool> isDarkMode = ValueNotifier(true);
-
-  // ===========================================================================
-  // 🎨 COLOR PALETTE (Matched to Your Image)
-  // ===========================================================================
-
-  // --- DARK MODE (Slate & Blue) ---
-  static const Color _darkBackground = Color(0xFF0F172A); // Slate 900
-  static const Color _darkSurface = Color(0xFF1E293B); // Slate 800 (Cards)
-  static const Color _darkPrimary = Color(0xFF2563EB); // Blue 600
-  static const Color _darkSecondary = Color(
-    0xFF172554,
-  ); // Blue 950 (Gradient Accent)
-  static const Color _darkTextMain = Colors.white;
-  static const Color _darkTextSub = Color(0xFF94A3B8); // Slate 400
-  static const Color _darkBorder = Color(0xFF334155); // Slate 700
-
-  // --- LIGHT MODE (Standard) ---
-  static const Color _lightBackground = Color(0xFFF8FAFC); // Slate 50
-  static const Color _lightSurface = Colors.white;
-  static const Color _lightPrimary = Color(0xFF2563EB); // Blue 600
-  static const Color _lightSecondary = Color(0xFFDBEAFE); // Blue 100
-  static const Color _lightTextMain = Color(0xFF0F172A); // Slate 900
-  static const Color _lightTextSub = Color(0xFF64748B); // Slate 500
-  static const Color _lightBorder = Color(0xFFE2E8F0); // Slate 200
-
-  // ===========================================================================
-  // ⚙️ LOGIC
-  // ===========================================================================
+  final ValueNotifier<bool> isDarkMode = ValueNotifier<bool>(true);
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    isDarkMode.value = prefs.getBool('darkMode') ?? true;
+    isDarkMode.value = prefs.getBool('is_dark_mode') ?? true;
   }
 
-  Future<void> setDarkMode(bool value) async {
-    isDarkMode.value = value;
+  Future<void> toggleTheme() async {
+    isDarkMode.value = !isDarkMode.value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('darkMode', value);
+    await prefs.setBool('is_dark_mode', isDarkMode.value);
   }
 
-  // ===========================================================================
-  // 🌓 THEME DEFINITIONS
-  // ===========================================================================
+  // ✅ CENTRALIZED COLORS (No more hardcoding in screens)
+  static const Color neonGreen = Color.fromARGB(255, 2, 188, 21);
+  static const Color purple = Color(0xFF8B5CF6);
+  static const Color orange = Color(0xFFFF8C00);
+  static const Color blue = Color(0xFF3B82F6);
+  static const Color red = Color(0xFFFF3B30);
 
-  ThemeData get darkTheme {
-    return ThemeData.dark().copyWith(
-      scaffoldBackgroundColor: _darkBackground,
-      primaryColor: _darkPrimary,
-      cardColor: _darkSurface,
-      dividerColor: _darkBorder,
-
-      colorScheme: const ColorScheme.dark(
-        primary: _darkPrimary,
-        secondary: _darkSecondary, // Used for Gradient End
-        surface: _darkSurface,
-        background: _darkBackground, // Used for Gradient Start
-        onSurface: _darkTextMain,
+  // --- Themes ---
+  final ThemeData lightTheme = ThemeData(
+    brightness: Brightness.light,
+    primaryColor: const Color.fromARGB(255, 0, 255, 81),
+    scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+    cardColor: Colors.white,
+    dividerColor: const Color(0xFFE0E0E0),
+    colorScheme: const ColorScheme.light(
+      primary: Color.fromARGB(255, 2, 242, 86),
+      secondary: purple,
+      error: red,
+      tertiary: orange, // Using tertiary for status orange
+      surface: Colors.white,
+    ),
+    iconTheme: const IconThemeData(color: Color(0xFF1E1E1E)),
+    textTheme: const TextTheme(
+      bodyMedium: TextStyle(color: Color(0xFF1E1E1E)),
+      titleLarge: TextStyle(
+        color: Color(0xFF1E1E1E),
+        fontWeight: FontWeight.bold,
       ),
+    ),
+  );
 
-      textTheme: const TextTheme(
-        titleLarge: TextStyle(
-          color: _darkTextMain,
-          fontWeight: FontWeight.bold,
-        ),
-        bodyMedium: TextStyle(color: _darkTextMain),
-        bodySmall: TextStyle(color: _darkTextSub),
-      ),
-
-      appBarTheme: const AppBarTheme(
-        backgroundColor: _darkBackground,
-        elevation: 0,
-        iconTheme: IconThemeData(color: _darkTextMain),
-        titleTextStyle: TextStyle(
-          color: _darkTextMain,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: _darkSurface,
-        hintStyle: const TextStyle(color: _darkTextSub),
-        prefixIconColor: _darkTextSub,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _darkBorder),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _darkPrimary),
-        ),
-      ),
-
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _darkPrimary,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-        ),
-      ),
-    );
-  }
-
-  ThemeData get lightTheme {
-    return ThemeData.light().copyWith(
-      scaffoldBackgroundColor: _lightBackground,
-      primaryColor: _lightPrimary,
-      cardColor: _lightSurface,
-      dividerColor: _lightBorder,
-
-      colorScheme: const ColorScheme.light(
-        primary: _lightPrimary,
-        secondary: _lightSecondary,
-        surface: _lightSurface,
-        background: _lightBackground,
-        onSurface: _lightTextMain,
-      ),
-
-      textTheme: const TextTheme(
-        titleLarge: TextStyle(
-          color: _lightTextMain,
-          fontWeight: FontWeight.bold,
-        ),
-        bodyMedium: TextStyle(color: _lightTextMain),
-        bodySmall: TextStyle(color: _lightTextSub),
-      ),
-
-      appBarTheme: const AppBarTheme(
-        backgroundColor: _lightBackground,
-        elevation: 0,
-        iconTheme: IconThemeData(color: _lightTextMain),
-        titleTextStyle: TextStyle(
-          color: _lightTextMain,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        hintStyle: const TextStyle(color: _lightTextSub),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _lightBorder),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _lightBorder),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _lightPrimary),
-        ),
-      ),
-
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _lightPrimary,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      ),
-    );
-  }
+  final ThemeData darkTheme = ThemeData(
+    brightness: Brightness.dark,
+    primaryColor: const Color.fromARGB(255, 0, 255, 64),
+    scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+    cardColor: const Color(0xFF2A2A2A),
+    dividerColor: const Color(0xFF3A3A3A),
+    colorScheme: const ColorScheme.dark(
+      primary: Color.fromARGB(255, 0, 255, 30),
+      secondary: purple,
+      error: red,
+      tertiary: orange,
+      surface: Color(0xFF2A2A2A),
+    ),
+    iconTheme: const IconThemeData(color: Colors.white),
+    textTheme: const TextTheme(
+      bodyMedium: TextStyle(color: Colors.white),
+      titleLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    ),
+  );
 }

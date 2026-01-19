@@ -4,42 +4,45 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 class PlacesService {
-  Future<List<dynamic>> fetchPlaces({
+  // Singleton
+  static final PlacesService _instance = PlacesService._internal();
+  factory PlacesService() => _instance;
+  PlacesService._internal();
+
+  Future<List<Map<String, dynamic>>> fetchPlaces({
     required LatLng center,
     required String category,
-    int radius = 3000, // Reduced to 3km for faster loading
-    int radius2 = 7000, //hotels reduce
+    int radius = 5000,
   }) async {
     String queryContent = "";
 
-    // Queries
+    // 1. Define Queries
     String cafeQuery =
         """
-      node["amenity"="cafe"](around:$radius,${center.latitude},${center.longitude});
-      way["amenity"="cafe"](around:$radius,${center.latitude},${center.longitude});
+      node["amenity"~"cafe|fast_food|restaurant"](around:$radius,${center.latitude},${center.longitude});
     """;
 
+    // ✅ REFINED: Removed 'guest_house', 'hostel', 'apartment' to hide private houses
     String hotelQuery =
         """
-      node["tourism"~"hotel|motel|guest_house|hostel"](around:$radius2,${center.latitude},${center.longitude});
-      way["tourism"~"hotel|motel|guest_house|hostel"](around:$radius2,${center.latitude},${center.longitude});
+      node["tourism"~"hotel|motel"](around:$radius,${center.latitude},${center.longitude});
     """;
 
     String mosqueQuery =
         """
       node["amenity"="place_of_worship"]["religion"="muslim"](around:$radius,${center.latitude},${center.longitude});
-      way["amenity"="place_of_worship"]["religion"="muslim"](around:$radius,${center.latitude},${center.longitude});
     """;
 
-    // Logic to combine queries
-    if (category == "all") {
-      queryContent = cafeQuery + hotelQuery + mosqueQuery;
-    } else if (category == "hotel") {
+    // 2. Select Query based on Category
+    if (category == 'hotel') {
       queryContent = hotelQuery;
-    } else if (category == "mosque") {
+    } else if (category == 'cafe') {
+      queryContent = cafeQuery;
+    } else if (category == 'mosque') {
       queryContent = mosqueQuery;
     } else {
-      queryContent = cafeQuery;
+      // 'all' -> Combine essential ones (Removed Rest Areas)
+      queryContent = cafeQuery + hotelQuery;
     }
 
     final String fullQuery = '[out:json];($queryContent);out center;';
@@ -49,33 +52,63 @@ class PlacesService {
 
     try {
       final response = await http.get(url);
+
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        List<dynamic> rawPlaces = data['elements'];
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        List<dynamic> elements = data['elements'];
         final Distance distanceCalculator = const Distance();
 
-        for (var place in rawPlaces) {
+        List<Map<String, dynamic>> results = [];
+
+        for (var place in elements) {
+          var tags = place['tags'] ?? {};
+          String name =
+              tags['name:ar'] ??
+              tags['name:en'] ??
+              tags['name'] ??
+              'مكان بدون اسم';
+
+          String type = 'place';
+          if (tags.containsKey('tourism'))
+            type = 'hotel';
+          else if (tags['religion'] == 'muslim')
+            type = 'mosque';
+          else if (tags['amenity'] == 'cafe' || tags['amenity'] == 'fast_food')
+            type = 'cafe';
+
           double lat = place['lat'] ?? place['center']['lat'];
           double lon = place['lon'] ?? place['center']['lon'];
-          place['safe_lat'] = lat;
-          place['safe_lon'] = lon;
-          place['distance_meters'] = distanceCalculator.as(
+          LatLng pos = LatLng(lat, lon);
+
+          double distMeters = distanceCalculator.as(
             LengthUnit.Meter,
             center,
-            LatLng(lat, lon),
+            pos,
           );
+
+          results.add({
+            'id': place['id'],
+            'name': name,
+            'type': type,
+            'address': tags['addr:street'] ?? 'قريب منك',
+            'distance': (distMeters / 1000).toStringAsFixed(1),
+            'distanceVal': distMeters,
+            'location': pos,
+          });
         }
 
-        // Sort here so the UI receives ordered data
-        rawPlaces.sort(
-          (a, b) => a['distance_meters'].compareTo(b['distance_meters']),
+        results.sort(
+          (a, b) => (a['distanceVal'] as double).compareTo(
+            b['distanceVal'] as double,
+          ),
         );
 
-        return rawPlaces;
+        return results;
       }
     } catch (e) {
       debugPrint("Error fetching places: $e");
     }
-    return [];
+
+    return <Map<String, dynamic>>[];
   }
 }
