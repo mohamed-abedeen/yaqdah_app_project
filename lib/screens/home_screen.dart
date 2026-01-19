@@ -283,28 +283,25 @@ class _MainLayoutState extends State<MainLayout> {
         ),
         child: IndexedStack(index: _currentIndex, children: screens),
       ),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              height: 70,
-              decoration: BoxDecoration(
-                color: navBarColor,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: navBarBorder),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _navItem(Icons.home_rounded, "Home", 0),
-                  _navItem(Icons.description_outlined, "Reports", 1),
-                  _navItem(Icons.coffee_outlined, "Rest", 2),
-                  _navItem(Icons.person_outline, "Account", 3),
-                ],
-              ),
+      bottomNavigationBar: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            height: 70,
+            decoration: BoxDecoration(
+              color: navBarColor,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: navBarBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _navItem(Icons.home_rounded, "Home", 0),
+                _navItem(Icons.description_outlined, "Reports", 1),
+                _navItem(Icons.coffee_outlined, "Rest", 2),
+                _navItem(Icons.person_outline, "Account", 3),
+              ],
             ),
           ),
         ),
@@ -334,7 +331,9 @@ class _MainLayoutState extends State<MainLayout> {
               icon,
               color: isSelected
                   ? activeColor
-                  : (isDark ? Colors.grey : Colors.grey[400]),
+                  : (isDark
+                        ? const Color.fromRGBO(237, 170, 62, 1)
+                        : const Color.fromRGBO(91, 46, 235, 1)),
               size: 24,
             ),
             if (isSelected)

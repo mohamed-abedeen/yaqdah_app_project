@@ -729,8 +729,6 @@ class DashboardUIState extends State<DashboardUI>
                 ),
               ],
             ),
-
-            const SizedBox(height: 80),
           ],
         ),
       ),

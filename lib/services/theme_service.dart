@@ -19,7 +19,6 @@ class ThemeService {
     await prefs.setBool('is_dark_mode', isDarkMode.value);
   }
 
-  // ✅ CENTRALIZED COLORS (No more hardcoding in screens)
   static const Color neonGreen = Color.fromARGB(255, 2, 188, 21);
   static const Color purple = Color(0xFF8B5CF6);
   static const Color orange = Color(0xFFFF8C00);
@@ -55,7 +54,7 @@ class ThemeService {
     primaryColor: const Color.fromARGB(255, 0, 255, 64),
     scaffoldBackgroundColor: const Color(0xFF1E1E1E),
     cardColor: const Color(0xFF2A2A2A),
-    dividerColor: const Color(0xFF3A3A3A),
+    dividerColor: const Color.fromARGB(255, 73, 73, 73),
     colorScheme: const ColorScheme.dark(
       primary: Color.fromARGB(255, 0, 255, 30),
       secondary: purple,

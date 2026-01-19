@@ -82,16 +82,17 @@ flutter:
   uses-material-design: true
   assets:
       # You can add logo.jpg here if you want to use it inside the app too
-    - images/logo.jpg 
+    - images/logo.png 
 
 # ✅ Configuration for generating the app icon
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "images/logo.jpg"
+  image_path: "images/logo.png"
+  adaptive_icon_background: "#3413a3"
+  adaptive_icon_foreground: "images/logo.png"
   min_sdk_android: 21
-  # adaptive_icon_background: "images/dark.png" 
-  adaptive_icon_foreground: "images/logo.jpg"
+  
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
