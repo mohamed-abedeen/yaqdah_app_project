@@ -82,7 +82,10 @@ flutter:
   uses-material-design: true
   assets:
       # You can add logo.jpg here if you want to use it inside the app too
-    - images/logo.png 
+    - images/yaqdah-13.png  
+    - images/logo.png
+    
+
 
 # ✅ Configuration for generating the app icon
 flutter_launcher_icons:

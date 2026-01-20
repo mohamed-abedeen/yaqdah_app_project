@@ -387,7 +387,7 @@ class DashboardUIState extends State<DashboardUI>
   Map<String, dynamic> _getStatusConfig() {
     final red = ThemeService.red;
     final orange = ThemeService.orange;
-    final green = Theme.of(context).primaryColor;
+    final green = ThemeService.Green;
 
     if (widget.status == "ASLEEP" || widget.status == "DISTRACTED") {
       return {
@@ -446,16 +446,11 @@ class DashboardUIState extends State<DashboardUI>
                   ],
                 ),
                 Container(
-                  width: 40,
+                  width: 118,
                   height: 40,
-                  decoration: BoxDecoration(
-                    color: theme.primaryColor.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.remove_red_eye,
-                    color: theme.primaryColor,
-                    size: 20,
+                  child: Image.asset(
+                    'images/yaqdah-13.png',
+                    fit: BoxFit.contain,
                   ),
                 ),
               ],
