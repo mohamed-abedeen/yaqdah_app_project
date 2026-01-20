@@ -9,6 +9,8 @@ class AudioService {
   final SpeechToText _speechToText = SpeechToText();
 
   bool _isListening = false;
+  // Track if the emergency alarm is active so beeps don't interrupt it
+  bool _isAlarmActive = false;
 
   Future<void> init() async {
     // 1. Setup TTS (Voice)
@@ -18,13 +20,11 @@ class AudioService {
       await _flutterTts.setSpeechRate(0.5);
 
       if (Platform.isIOS) {
-        await _flutterTts.setIosAudioCategory(
-          IosTextToSpeechAudioCategory.playback,
-          [
-            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-            IosTextToSpeechAudioCategoryOptions.duckOthers
-          ],
-        );
+        await _flutterTts
+            .setIosAudioCategory(IosTextToSpeechAudioCategory.playback, [
+              IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+              IosTextToSpeechAudioCategoryOptions.duckOthers,
+            ]);
       }
     } catch (e) {
       print("TTS Init Error: $e");
@@ -42,14 +42,12 @@ class AudioService {
 
   // --- TTS (Speaking) ---
   Future<void> speak(String text) async {
+    // Don't speak if emergency alarm is blasting
+    if (_isAlarmActive) return;
+
     if (text.isNotEmpty) {
       await _flutterTts.stop();
-      var result = await _flutterTts.speak(text);
-      if (result == 1) {
-        print("TTS: Speak command successful");
-      } else {
-        print("TTS: Speak command failed");
-      }
+      await _flutterTts.speak(text);
     }
   }
 
@@ -82,25 +80,46 @@ class AudioService {
     await _speechToText.stop();
   }
 
-  // --- Alarm ---
+  // --- 🚨 Emergency Alarm (High Priority) ---
   Future<void> playAlarm() async {
-    if (_audioPlayer.state == PlayerState.playing) return;
+    // If alarm is already running, don't restart it (avoids stuttering)
+    if (_isAlarmActive) return;
 
-    // Ensure we are in loop mode for the alarm
+    _isAlarmActive = true;
+
+    // Stop any other sound (Beeps, Speech) immediately
+    await _audioPlayer.stop();
+    await _flutterTts.stop();
+
+    // Loop for "ASLEEP"
     await _audioPlayer.setReleaseMode(ReleaseMode.loop);
     await _audioPlayer.setSource(AssetSource('sounds/alarm.mp3'));
+    await _audioPlayer.setVolume(1.0); // Max volume
     await _audioPlayer.resume();
-    await _audioPlayer.setVolume(1.0);
+  }
+
+  // --- ⚠️ Warning Beep (Low Priority) ---
+  Future<void> playBeep() async {
+    // If Emergency Alarm is active, DO NOT interrupt it with a beep
+    if (_isAlarmActive) return;
+
+    // If a previous beep is still playing, we can ignore this one or restart.
+    // Generally safe to just restart for warnings.
+    await _audioPlayer.stop();
+    await _audioPlayer.setReleaseMode(ReleaseMode.release); // Play once
+    await _audioPlayer.setSource(AssetSource('sounds/alarm.mp3'));
+    await _audioPlayer.setVolume(0.5); // Lower volume
+    await _audioPlayer.resume();
   }
 
   Future<void> stopAll() async {
+    _isAlarmActive = false;
     await _audioPlayer.stop();
-    await _audioPlayer.setReleaseMode(ReleaseMode.stop); 
+    await _audioPlayer.setReleaseMode(ReleaseMode.stop);
     await _flutterTts.stop();
     await stopListening();
   }
 
-  // ✅ FIXED: Added this missing method
   void dispose() {
     _audioPlayer.dispose();
     _flutterTts.stop();

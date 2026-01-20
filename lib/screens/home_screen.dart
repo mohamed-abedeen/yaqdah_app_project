@@ -36,7 +36,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initApp() async {
-    // ThemeService is already init in main.dart, but harmless to double check
     final prefs = await SharedPreferences.getInstance();
     final String? email = prefs.getString('user_email');
     if (email != null) {
@@ -78,7 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // ✅ FIXED: Removed nested MaterialApp. Now returns widgets directly.
     return _isAuthenticated
         ? MainLayout(
             cameras: widget.cameras,
@@ -121,7 +119,14 @@ class _MainLayoutState extends State<MainLayout> {
   final AudioService _audio = AudioService();
   final GeminiService _gemini = GeminiService();
   final LocationSmsService _smsService = LocationSmsService();
-  DateTime _lastAiTrigger = DateTime.now();
+
+  // Timers to prevent audio spam
+  DateTime _lastAiTrigger = DateTime.now().subtract(
+    const Duration(seconds: 10),
+  );
+  DateTime _lastBeepTrigger = DateTime.now().subtract(
+    const Duration(seconds: 10),
+  );
 
   @override
   void initState() {
@@ -146,27 +151,51 @@ class _MainLayoutState extends State<MainLayout> {
 
   void _handleStatusChange(String newStatus) {
     if (!mounted) return;
+
+    // Logic is executed regardless of UI updates
+    switch (newStatus) {
+      case "AWAKE":
+        // Only stop audio if we were previously in danger/drowsy to avoid cutting off normal speech
+        if (_status == "ASLEEP" || _status == "DROWSY") {
+          _audio.stopAll();
+        }
+        break;
+      case "DISTRACTED":
+        _triggerGemini("DISTRACTED");
+        break;
+      case "DROWSY":
+        _triggerBeep(); // ✅ Trigger the Beep
+        _triggerGemini("DROWSY");
+        break;
+      case "ASLEEP":
+        _triggerSOS();
+        break;
+    }
+
     setState(() {
       _status = newStatus;
       switch (newStatus) {
         case "AWAKE":
           _drowsinessLevel = 15;
-          _audio.stopAll();
           break;
         case "DISTRACTED":
           _drowsinessLevel = 45;
-          _triggerGemini("DISTRACTED");
           break;
         case "DROWSY":
           _drowsinessLevel = 75;
-          _triggerGemini("DROWSY");
           break;
         case "ASLEEP":
           _drowsinessLevel = 95;
-          _triggerSOS();
           break;
       }
     });
+  }
+
+  // ✅ NEW: Triggers a short warning beep every 3 seconds
+  void _triggerBeep() async {
+    if (DateTime.now().difference(_lastBeepTrigger).inSeconds < 3) return;
+    _lastBeepTrigger = DateTime.now();
+    await _audio.playBeep();
   }
 
   void _triggerGemini(String state) async {
@@ -180,8 +209,6 @@ class _MainLayoutState extends State<MainLayout> {
   void _triggerSOS() async {
     await _audio.playAlarm();
     _smsService.sendEmergencyAlert();
-    String msg = await _gemini.getIntervention("ASLEEP");
-    await _audio.speak(msg);
   }
 
   void _toggleListening() async {
@@ -217,7 +244,7 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context); // ✅ Theme now comes from main.dart
+    final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     final List<Widget> screens = [
@@ -278,30 +305,31 @@ class _MainLayoutState extends State<MainLayout> {
     return Scaffold(
       extendBody: true,
       body: Container(
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor, // ✅ Clean dynamic BG
-        ),
+        decoration: BoxDecoration(color: theme.scaffoldBackgroundColor),
         child: IndexedStack(index: _currentIndex, children: screens),
       ),
-      bottomNavigationBar: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            height: 70,
-            decoration: BoxDecoration(
-              color: navBarColor,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: navBarBorder),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _navItem(Icons.home_rounded, "Home", 0),
-                _navItem(Icons.description_outlined, "Reports", 1),
-                _navItem(Icons.coffee_outlined, "Rest", 2),
-                _navItem(Icons.person_outline, "Account", 3),
-              ],
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              height: 70,
+              decoration: BoxDecoration(
+                color: navBarColor,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: navBarBorder),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _navItem(Icons.home_rounded, "Home", 0),
+                  _navItem(Icons.description_outlined, "Reports", 1),
+                  _navItem(Icons.coffee_outlined, "Rest", 2),
+                  _navItem(Icons.person_outline, "Account", 3),
+                ],
+              ),
             ),
           ),
         ),
@@ -313,7 +341,21 @@ class _MainLayoutState extends State<MainLayout> {
     bool isSelected = _currentIndex == index;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final activeColor = theme.primaryColor;
+
+    // ✅ 1. Define Selected Color (Changes based on Theme)
+    final Color selectedColor = isDark
+        ? const Color.fromARGB(
+            255,
+            242,
+            216,
+            76,
+          ) // Yellow/Gold for Dark Mode (Pop color)
+        : const Color.fromRGBO(91, 46, 235, 1); // Purple for Light Mode
+
+    // ✅ 2. Define Unselected Color
+    final Color unselectedColor = isDark
+        ? const Color.fromRGBO(237, 170, 62, 1) // Muted Orange for Dark Mode
+        : const Color.fromRGBO(52, 19, 163, 1); // Purple for Light Mode
 
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
@@ -321,7 +363,10 @@ class _MainLayoutState extends State<MainLayout> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent,
+          // Background bubble color
+          color: isSelected
+              ? selectedColor.withOpacity(0.15)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -329,18 +374,14 @@ class _MainLayoutState extends State<MainLayout> {
           children: [
             Icon(
               icon,
-              color: isSelected
-                  ? activeColor
-                  : (isDark
-                        ? const Color.fromRGBO(237, 170, 62, 1)
-                        : const Color.fromRGBO(91, 46, 235, 1)),
+              color: isSelected ? selectedColor : unselectedColor,
               size: 24,
             ),
             if (isSelected)
               Text(
                 label,
                 style: TextStyle(
-                  color: activeColor,
+                  color: selectedColor, // Text matches icon color
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),

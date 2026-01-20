@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/edit_profile_modal.dart';
-import '../services/theme_service.dart'; // ✅ Import
+import '../services/theme_service.dart';
+import 'test_mode_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Map<String, dynamic> currentUser;
@@ -94,26 +95,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [green.withOpacity(0.1), Colors.transparent],
+                    colors: [Colors.white.withOpacity(0.1), Colors.transparent],
                   ),
-                  border: Border.all(color: green.withOpacity(0.3)),
-                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: const Color.fromARGB(
+                      31,
+                      112,
+                      112,
+                      112,
+                    ).withOpacity(0.3),
+                  ),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
                   children: [
                     Stack(
                       children: [
                         Container(
-                          width: 80,
-                          height: 80,
+                          width: 60,
+                          height: 60,
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                green,
-                                const Color.fromARGB(255, 84, 249, 2),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(20),
+                            color: const Color.fromARGB(255, 91, 89, 92),
+
+                            borderRadius: BorderRadius.circular(80),
                           ),
                           child: const Icon(
                             Icons.person_rounded,
@@ -121,7 +125,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: Color.fromARGB(255, 0, 0, 0),
                           ),
                         ),
-                        //
                       ],
                     ),
                     const SizedBox(width: 16),
@@ -150,8 +153,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text(
                               "تعديل الملف الشخصي",
                               style: TextStyle(
-                                color: green,
-                                fontSize: 12,
+                                color: purple,
+                                // decoration: TextDecoration.underline,
+                                fontSize: 14,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -242,12 +246,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     "المظهر الداكن",
                     "تغيير مظهر التطبيق",
                     Icons.dark_mode,
-                    Colors.yellow,
+                    Colors
+                        .yellow, // Using Yellow for the icon in Dark Mode context
                     isDark,
                     (v) => ThemeService.instance.toggleTheme(),
                     theme,
                   );
                 },
+              ),
+
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const TestModeScreen(),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: ThemeService.blue.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.bug_report,
+                          color: ThemeService.blue,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "اختبار النظام (Test Lab)",
+                              style: TextStyle(
+                                color: theme.textTheme.bodyMedium!.color,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Text(
+                              "مشاهدة بيانات المودل مباشرة",
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 14,
+                        color: Colors.grey,
+                      ),
+                    ],
+                  ),
+                ),
               ),
 
               const SizedBox(height: 24),
@@ -291,7 +359,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Function(bool) onChanged,
     ThemeData theme,
   ) {
-    final green = theme.primaryColor;
+    // ✅ Logic: Yellow for Dark Mode, Green for Light Mode
+    final isDark = theme.brightness == Brightness.dark;
+    final activeSwitchColor = isDark
+        ? const Color(0xFFFFC107) // Yellow/Gold
+        : const Color.fromRGBO(52, 19, 163, 1); // Green
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -332,8 +405,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: green,
-            activeTrackColor: green.withOpacity(0.3),
+            // ✅ Applied Dynamic Color
+            activeColor: activeSwitchColor,
+            activeTrackColor: activeSwitchColor.withOpacity(0.3),
             inactiveThumbColor: Colors.white,
             inactiveTrackColor: theme.dividerColor,
           ),
@@ -351,7 +425,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Function(bool) onChanged,
     ThemeData theme,
   ) {
-    final green = theme.primaryColor;
+    // ✅ Logic: Yellow for Dark Mode, Green for Light Mode
+    final isDark = theme.brightness == Brightness.dark;
+    final activeSwitchColor = isDark
+        ? const Color(0xFFFFC107) // Yellow/Gold
+        : const Color.fromARGB(255, 86, 19, 163); // Green
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -387,8 +466,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: green,
-            activeTrackColor: green.withOpacity(0.3),
+            // ✅ Applied Dynamic Color
+            activeColor: activeSwitchColor,
+            activeTrackColor: activeSwitchColor.withOpacity(0.3),
           ),
         ],
       ),

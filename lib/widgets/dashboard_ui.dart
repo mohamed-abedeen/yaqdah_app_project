@@ -96,9 +96,13 @@ class DashboardUIState extends State<DashboardUI>
       final now = DateTime.now().toIso8601String();
       if (widget.status == "DROWSY") {
         _tripEvents.add("$now: ⚠️ Drowsiness Detected");
-      } else if (widget.status == "ASLEEP" || widget.status == "DISTRACTED") {
-        _tripEvents.add("$now: 🚨 Danger: ${widget.status}");
+      } else if (widget.status == "ASLEEP") {
+        // ✅ FIXED: Only mark ASLEEP as extreme danger
+        _tripEvents.add("$now: 🚨 Danger: Asleep");
         setState(() => _hasDangerousEvents = true);
+      } else if (widget.status == "DISTRACTED") {
+        // ✅ FIXED: Log Distraction separately
+        _tripEvents.add("$now: ⚠️ Distraction Detected");
       }
     }
   }
@@ -384,17 +388,37 @@ class DashboardUIState extends State<DashboardUI>
     );
   }
 
+  // ✅ UPDATED: Added "Idle/Ready" State logic
   Map<String, dynamic> _getStatusConfig() {
     final red = ThemeService.red;
     final orange = ThemeService.orange;
     final green = ThemeService.Green;
+    final blue = ThemeService.blue;
 
-    if (widget.status == "ASLEEP" || widget.status == "DISTRACTED") {
+    // 1. Check if Trip is Active
+    if (!widget.isMonitoring) {
+      return {
+        'color': blue,
+        'bgColor': blue.withOpacity(0.2),
+        'borderColor': blue.withOpacity(0.5),
+        'text': "جاهز للرحلة", // Ready for trip / Waiting
+      };
+    }
+
+    // 2. Active Trip Logic
+    if (widget.status == "ASLEEP") {
       return {
         'color': red,
         'bgColor': red.withOpacity(0.2),
         'borderColor': red.withOpacity(0.5),
         'text': "خطر - توقف فوراً!",
+      };
+    } else if (widget.status == "DISTRACTED") {
+      return {
+        'color': orange,
+        'bgColor': orange.withOpacity(0.2),
+        'borderColor': orange.withOpacity(0.5),
+        'text': "تشتت الانتباه - ركز!",
       };
     } else if (widget.status == "DROWSY") {
       return {
@@ -611,7 +635,10 @@ class DashboardUIState extends State<DashboardUI>
                       Column(
                         children: [
                           Text(
-                            "${widget.drowsinessLevel.toInt()}%",
+                            // ✅ Hide percentage if idle
+                            !widget.isMonitoring
+                                ? "--"
+                                : "${widget.drowsinessLevel.toInt()}%",
                             style: TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,

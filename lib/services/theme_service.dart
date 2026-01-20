@@ -19,73 +19,70 @@ class ThemeService {
     await prefs.setBool('is_dark_mode', isDarkMode.value);
   }
 
-  // --- Static Global Colors (Used for specific statuses like "Safe", "Drowsy", "Danger") ---
-  static const Color Green = Color.fromARGB(
-    255,
-    9,
-    189,
-    0,
-  ); // 🟢 CHANGES: "Safe" status, Active Toggles, Success messages
-  static const Color purple = Color.fromARGB(
-    255,
-    136,
-    85,
-    255,
-  ); // 🟣 CHANGES: "Time/Duration" icons, Charts, Secondary stats
-  static const Color orange = Color(
-    0xFFFF8C00,
-  ); // 🟠 CHANGES: "Drowsy" warning status, "Alert" icons
-  static const Color blue = Color(
-    0xFF3B82F6,
-  ); // 🔵 CHANGES: "Distance" icons, Map routes, Info messages
-  static const Color red = Color.fromARGB(
-    255,
-    250,
-    19,
-    6,
-  ); // 🔴 CHANGES: "Emergency" status, Delete buttons, Danger zones
+  // ==============================================================================
+  // 🎨 STATIC GLOBAL STATUS COLORS
+  // These are used for specific logic states (e.g., "Safe", "Danger") regardless of theme mode.
+  // ==============================================================================
 
-  // --- Light Theme Configuration ---
+  // 🟢 Green: Used for "Safe" driver status, Success messages, and Active Toggles
+  static const Color Green = Color.fromARGB(255, 9, 189, 0);
+
+  // 🟣 Purple: Used for "Time/Duration" icons, Charts, and Secondary stats (Speed)
+  static const Color purple = Color.fromARGB(255, 136, 85, 255);
+
+  // 🟠 Orange: Used for "Drowsy" warning status, "Alert" icons, and Caution states
+  static const Color orange = Color(0xFFFF8C00);
+
+  // 🔵 Blue: Used for "Distance" icons, Map routes, and informational messages
+  static const Color blue = Color(0xFF3B82F6);
+
+  // 🔴 Red: Used for "Emergency/Asleep" status, Delete buttons, and Danger zones
+  static const Color red = Color.fromARGB(255, 250, 19, 6);
+
+  // ==============================================================================
+  // ☀️ LIGHT THEME CONFIGURATION
+  // Used when the app is in "Day Mode"
+  // ==============================================================================
   final ThemeData lightTheme = ThemeData(
     brightness: Brightness.light,
 
-    // 🎨 Main Branding Color (Buttons, Active Tab Icons, Links)
+    // 🎨 Main Brand Color: Used for active tab icons, links, and focus borders
     primaryColor: const Color.fromARGB(255, 3, 200, 17),
 
-    // ⬜ Background of the whole screen (Behind the content)
+    // ⬜ Screen Background: The color behind everything (e.g., the settings page background)
     scaffoldBackgroundColor: const Color(0xFFF5F5F5),
 
-    // 🃏 Background of Cards, Popups, and Bottom Sheets
+    // 🃏 Card Background: Used for the white boxes in Reports, Settings, and Dashboard stats
     cardColor: Colors.white,
 
-    // ➖ Color of thin lines separating list items
+    // ➖ Divider Color: The thin grey lines separating list items
     dividerColor: const Color(0xFFE0E0E0),
 
     colorScheme: const ColorScheme.light(
-      // 🟢 Primary Action Color (Floating Action Button, Active Switches)
+      // 🟢 Primary Action: Color of Floating Action Buttons (Mic) and Switches
       primary: Color.fromARGB(255, 2, 242, 86),
 
-      // 🟣 Secondary Accent (Selection controls, sliders)
+      // 🟣 Secondary Accent: Used for selection controls and sliders
       secondary: purple,
 
-      // 🔴 Error Color (Input validation errors, warning borders)
+      // 🔴 Error: Used for input validation errors (e.g., wrong password)
       error: red,
 
-      // 🟠 Tertiary Accent (Used for Warning/Orange statuses)
+      // 🟠 Tertiary: Helper color often used for warnings in this app
       tertiary: orange,
 
-      // ⬜ Surface Color (Usually matches Card Color)
+      // ⬜ Surface: Usually matches Card Color (background of dialogs/popups)
       surface: Colors.white,
     ),
 
-    // 🔳 Default color for Icons (Nav bar icons, standard icons)
-    iconTheme: const IconThemeData(color: Color(0xFF1E1E1E)),
+    // 🔳 Icon Color: The default color for navigation bar icons and standard icons
+    iconTheme: const IconThemeData(color: Color.fromARGB(255, 6, 6, 6)),
 
     textTheme: const TextTheme(
-      // 📝 Standard Paragraph Text (Settings labels, descriptions)
+      // 📝 Body Text: Standard paragraph text (e.g., settings labels)
       bodyMedium: TextStyle(color: Color(0xFF1E1E1E)),
 
-      // 📢 Large Headings (Page Titles like "Settings", "Reports")
+      // 📢 Titles: Large page headings (e.g., "Settings", "Reports")
       titleLarge: TextStyle(
         color: Color(0xFF1E1E1E),
         fontWeight: FontWeight.bold,
@@ -93,47 +90,50 @@ class ThemeService {
     ),
   );
 
-  // --- Dark Theme Configuration ---
+  // ==============================================================================
+  // 🌙 DARK THEME CONFIGURATION
+  // Used when the app is in "Night Mode" (Neon Style)
+  // ==============================================================================
   final ThemeData darkTheme = ThemeData(
     brightness: Brightness.dark,
 
-    // 🎨 Main Branding Color in Dark Mode (Buttons, Active Icons)
+    // 🎨 Main Brand Color: Used for active tab icons (Neon Purple in Dark Mode)
     primaryColor: const Color.fromARGB(255, 91, 46, 235),
 
-    // ⬛ Background of the whole screen (The main dark background)
+    // ⬛ Screen Background: The main dark background behind all content
     scaffoldBackgroundColor: const Color(0xFF1E1E1E),
 
-    // 🔲 Background of Cards, Popups, and Bottom Sheets (Slightly lighter dark)
+    // 🔲 Card Background: Slightly lighter dark color for panels/cards to stand out
     cardColor: const Color(0xFF2A2A2A),
 
-    // ➖ Color of thin lines in Dark Mode
+    // ➖ Divider Color: Thin lines separating items (Dark Grey)
     dividerColor: const Color.fromARGB(255, 73, 73, 73),
 
     colorScheme: const ColorScheme.dark(
-      // 🟡 Primary Action Color in Dark Mode (High contrast buttons)
+      // 🟡 Primary Action: High contrast buttons (Neon Yellow/Gold for visibility)
       primary: Color.fromARGB(255, 242, 216, 76),
 
-      // 🟣 Secondary Accent
+      // 🟣 Secondary Accent: Used for sliders and secondary UI elements
       secondary: purple,
 
-      // 🔴 Error Color
+      // 🔴 Error: High contrast red for errors in dark mode
       error: Color.fromARGB(255, 253, 15, 3),
 
-      // 🟠 Tertiary Accent
+      // 🟠 Tertiary: Warning color
       tertiary: orange,
 
-      // 🔲 Surface Color (Matches Card Color)
+      // 🔲 Surface: Matches Card Color (popups/dialogs)
       surface: Color(0xFF2A2A2A),
     ),
 
-    // ⚪ Default color for Icons in Dark Mode (White to stand out)
+    // ⚪ Icon Color: Default icons are White to stand out against dark background
     iconTheme: const IconThemeData(color: Colors.white),
 
     textTheme: const TextTheme(
-      // 📝 Standard Paragraph Text in Dark Mode (White)
+      // 📝 Body Text: Standard text is White in dark mode
       bodyMedium: TextStyle(color: Colors.white),
 
-      // 📢 Large Headings in Dark Mode (White)
+      // 📢 Titles: Page headings are White and Bold
       titleLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
     ),
   );

@@ -1,9 +1,10 @@
-import 'dart:io'; // Needed for Platform check
+import 'dart:io';
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart'; // Needed for WriteBuffer
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <--- FIXED: Needed for DeviceOrientation
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../logic/drowsiness_logic.dart'; // ✅ Import Logic
 
 class CameraFeed extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -30,7 +31,9 @@ class CameraFeedState extends State<CameraFeed> {
   int _selectedCameraIndex = 0;
   bool _isProcessing = false;
 
-  // Face Detector
+  // ✅ Create instance of your Logic Engine
+  final DrowsinessLogic _logic = DrowsinessLogic();
+
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
       enableClassification: true, // Needed for eyes
@@ -53,9 +56,8 @@ class CameraFeedState extends State<CameraFeed> {
       ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup
-                .nv21 // Android standard for ML Kit
-          : ImageFormatGroup.bgra8888, // iOS standard
+          ? ImageFormatGroup.nv21
+          : ImageFormatGroup.bgra8888,
     );
 
     try {
@@ -90,23 +92,33 @@ class CameraFeedState extends State<CameraFeed> {
       final faces = await _faceDetector.processImage(inputImage);
 
       if (faces.isEmpty) {
+        // If no face seen, wait a moment then trigger Distracted
+        // (For now, we can map empty directly to Distracted or handle inside Logic)
         widget.onStatusChange("DISTRACTED");
       } else {
         final face = faces.first;
 
-        double? leftEyeOpen = face.leftEyeOpenProbability;
-        double? rightEyeOpen = face.rightEyeOpenProbability;
+        // ✅ PASS DATA TO LOGIC ENGINE
+        final DriverState state = _logic.checkFace(face);
 
-        // Threshold: 0.2 means 20% open (mostly closed)
-        bool isAsleep =
-            (leftEyeOpen != null && leftEyeOpen < 0.2) &&
-            (rightEyeOpen != null && rightEyeOpen < 0.2);
-
-        if (isAsleep) {
-          widget.onStatusChange("ASLEEP");
-        } else {
-          widget.onStatusChange("AWAKE");
+        // ✅ CONVERT RESULT TO STRING FOR APP
+        String statusString = "AWAKE";
+        switch (state) {
+          case DriverState.awake:
+            statusString = "AWAKE";
+            break;
+          case DriverState.drowsy:
+            statusString = "DROWSY";
+            break;
+          case DriverState.asleep:
+            statusString = "ASLEEP";
+            break;
+          case DriverState.distracted:
+            statusString = "DISTRACTED";
+            break;
         }
+
+        widget.onStatusChange(statusString);
       }
     } catch (e) {
       print("Error processing face: $e");
@@ -115,7 +127,6 @@ class CameraFeedState extends State<CameraFeed> {
     }
   }
 
-  // --- NEW CONVERTER FOR LATEST ML KIT ---
   InputImage? _inputImageFromCameraImage(CameraImage image) {
     final camera = widget.cameras[_selectedCameraIndex];
     final sensorOrientation = camera.sensorOrientation;
@@ -128,10 +139,8 @@ class CameraFeedState extends State<CameraFeed> {
           _orientations[_controller!.value.deviceOrientation];
       if (rotationCompensation == null) return null;
       if (camera.lensDirection == CameraLensDirection.front) {
-        // front-facing
         rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
       } else {
-        // back-facing
         rotationCompensation =
             (sensorOrientation - rotationCompensation + 360) % 360;
       }
@@ -140,25 +149,18 @@ class CameraFeedState extends State<CameraFeed> {
 
     if (rotation == null) return null;
 
-    // get image format
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
     if (format == null ||
         (Platform.isAndroid && format != InputImageFormat.nv21) ||
         (Platform.isIOS && format != InputImageFormat.bgra8888)) {
-      // Only return null if format is totally unknown, otherwise try processing
       if (format == null) return null;
     }
 
-    // Since format is nullable in recent versions, we handle it safely or assume nv21 for Android
     final validFormat = format ?? InputImageFormat.nv21;
 
-    // Compose Metadata
-    // Note: 'bytesPerRow' is usually the first plane's bytesPerRow on Android/iOS for these formats
     if (image.planes.isEmpty) return null;
 
     final plane = image.planes.first;
-
-    // Concatenate planes
     final WriteBuffer allBytes = WriteBuffer();
     for (final Plane plane in image.planes) {
       allBytes.putUint8List(plane.bytes);
@@ -175,7 +177,6 @@ class CameraFeedState extends State<CameraFeed> {
     return InputImage.fromBytes(bytes: bytes, metadata: metadata);
   }
 
-  // Helper for Android Orientation
   final _orientations = {
     DeviceOrientation.portraitUp: 0,
     DeviceOrientation.landscapeLeft: 90,
@@ -187,6 +188,7 @@ class CameraFeedState extends State<CameraFeed> {
   void dispose() {
     _controller?.dispose();
     _faceDetector.close();
+    _logic.dispose(); // ✅ Clean up logic
     super.dispose();
   }
 
