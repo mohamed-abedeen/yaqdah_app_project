@@ -1,3 +1,5 @@
+// ignore_for_file: unused_field, deprecated_member_use, curly_braces_in_flow_control_structures
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
