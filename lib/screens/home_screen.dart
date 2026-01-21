@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
@@ -13,7 +15,6 @@ import '../services/database_service.dart';
 import '../services/audio_service.dart';
 import '../services/gemini_service.dart';
 import '../services/location_sms_service.dart';
-import '../services/theme_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -115,11 +116,13 @@ class _MainLayoutState extends State<MainLayout> {
   bool _isListening = false;
   String _currentCameraName = "Camera";
 
+  // ✅ 1. ADDED: Flag for Staggered Loading
+  bool _isCameraReady = false;
+
   final AudioService _audio = AudioService();
   final GeminiService _gemini = GeminiService();
   final LocationSmsService _smsService = LocationSmsService();
 
-  // Timers to prevent audio spam
   DateTime _lastAiTrigger = DateTime.now().subtract(
     const Duration(seconds: 10),
   );
@@ -132,6 +135,11 @@ class _MainLayoutState extends State<MainLayout> {
     super.initState();
     _audio.init();
     if (widget.cameras.isNotEmpty) _updateCameraName(0);
+
+    // ✅ 2. ADDED: Delay camera initialization to prevent UI freeze
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _isCameraReady = true);
+    });
   }
 
   void _updateCameraName(int index) {
@@ -151,10 +159,8 @@ class _MainLayoutState extends State<MainLayout> {
   void _handleStatusChange(String newStatus) {
     if (!mounted) return;
 
-    // Logic is executed regardless of UI updates
     switch (newStatus) {
       case "AWAKE":
-        // Only stop audio if we were previously in danger/drowsy to avoid cutting off normal speech
         if (_status == "ASLEEP" || _status == "DROWSY") {
           _audio.stopAll();
         }
@@ -163,7 +169,7 @@ class _MainLayoutState extends State<MainLayout> {
         _triggerGemini("DISTRACTED");
         break;
       case "DROWSY":
-        _triggerBeep(); // ✅ Trigger the Beep
+        _triggerBeep();
         _triggerGemini("DROWSY");
         break;
       case "ASLEEP":
@@ -190,7 +196,6 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
-  // ✅ NEW: Triggers a short warning beep every 3 seconds
   void _triggerBeep() async {
     if (DateTime.now().difference(_lastBeepTrigger).inSeconds < 3) return;
     _lastBeepTrigger = DateTime.now();
@@ -249,17 +254,19 @@ class _MainLayoutState extends State<MainLayout> {
     final List<Widget> screens = [
       Stack(
         children: [
-          Offstage(
-            offstage: true,
-            child: CameraFeed(
-              key: _cameraKey,
-              cameras: widget.cameras,
-              isMonitoring: _isMonitoring,
-              showFeed: true,
-              onStatusChange: _handleStatusChange,
-              onCameraChanged: _updateCameraName,
+          // ✅ 3. ADDED: Only load CameraFeed when ready
+          if (_isCameraReady)
+            Offstage(
+              offstage: true,
+              child: CameraFeed(
+                key: _cameraKey,
+                cameras: widget.cameras,
+                isMonitoring: _isMonitoring,
+                showFeed: true,
+                onStatusChange: _handleStatusChange,
+                onCameraChanged: _updateCameraName,
+              ),
             ),
-          ),
           DashboardUI(
             key: _dashboardKey,
             onLocationUpdate: (loc) => _currentLocation = loc,
@@ -287,7 +294,7 @@ class _MainLayoutState extends State<MainLayout> {
         ],
       ),
       const ReportsScreen(),
-      // ✅ UPDATED: Passing the value directly
+      // ✅ 4. FIXED: Passed `currentLocation` as value instead of function
       RestScreen(
         onPlaceSelected: _handlePlaceSelected,
         currentLocation: _currentLocation ?? const LatLng(32.8872, 13.1913),
@@ -341,20 +348,13 @@ class _MainLayoutState extends State<MainLayout> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // ✅ 1. Define Selected Color (Changes based on Theme)
     final Color selectedColor = isDark
-        ? const Color.fromARGB(
-            255,
-            242,
-            216,
-            76,
-          ) // Yellow/Gold for Dark Mode (Pop color)
-        : const Color.fromRGBO(91, 46, 235, 1); // Purple for Light Mode
+        ? const Color.fromARGB(255, 242, 216, 76)
+        : const Color.fromRGBO(91, 46, 235, 1);
 
-    // ✅ 2. Define Unselected Color
     final Color unselectedColor = isDark
-        ? const Color.fromRGBO(237, 170, 62, 1) // Muted Orange for Dark Mode
-        : const Color.fromRGBO(52, 19, 163, 1); // Purple for Light Mode
+        ? const Color.fromRGBO(237, 170, 62, 1)
+        : const Color.fromRGBO(52, 19, 163, 1);
 
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
@@ -362,7 +362,6 @@ class _MainLayoutState extends State<MainLayout> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          // Background bubble color
           color: isSelected
               ? selectedColor.withOpacity(0.15)
               : Colors.transparent,
@@ -380,7 +379,7 @@ class _MainLayoutState extends State<MainLayout> {
               Text(
                 label,
                 style: TextStyle(
-                  color: selectedColor, // Text matches icon color
+                  color: selectedColor,
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),

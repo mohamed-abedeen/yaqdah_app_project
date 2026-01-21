@@ -84,6 +84,7 @@ flutter:
   assets:
       # You can add logo.jpg here if you want to use it inside the app too
     - images/yaqdah-13.png  
+    - images/yaqdah-05.png  
     - images/logo.png
     
 

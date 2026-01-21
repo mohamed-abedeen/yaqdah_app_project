@@ -10,7 +10,7 @@
 analyzer:
   errors:
     constant_identifier_names: ignore
-    deprecated_member_use: warning
+    deprecated_member_use: ignore warning
 include: package:flutter_lints/flutter.yaml
 
 linter:

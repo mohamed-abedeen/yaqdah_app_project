@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -110,6 +112,7 @@ class _TestModeScreenState extends State<TestModeScreen> {
   }
 
   InputImage? _inputImageFromCameraImage(CameraImage image) {
+    // ignore: unused_local_variable
     final sensorOrientation = _controller!.description.sensorOrientation;
     InputImageRotation? rotation;
     if (Platform.isAndroid) {

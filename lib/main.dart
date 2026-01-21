@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'screens/home_screen.dart'; // ✅ Imports HomeScreen class
+import 'screens/home_screen.dart';
 import 'services/theme_service.dart';
+import 'services/database_service.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -10,11 +12,16 @@ Future<void> main() async {
   try {
     cameras = await availableCameras();
   } on CameraException catch (e) {
-    print('Error initializing camera: $e');
+    if (kDebugMode) {
+      print('Error initializing camera: $e');
+    }
   }
 
   // Initialize critical services before app starts
   await ThemeService.instance.init();
+
+  // ✅ DEBUG: Print all registered users to the console on startup
+  await DatabaseService.instance.debugPrintAllUsers();
 
   runApp(const YaqdahApp());
 }

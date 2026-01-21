@@ -19,7 +19,6 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    // ✅ Version increased to 5 for new "True Value" columns
     return await openDatabase(
       path,
       version: 5,
@@ -39,7 +38,6 @@ class DatabaseService {
       )
     ''');
 
-    // ✅ Initial table now includes all required columns
     await db.execute('''
       CREATE TABLE trips (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +61,6 @@ class DatabaseService {
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE users ADD COLUMN emergencyContact TEXT');
     }
-    // ✅ Migration to Version 5: Adding True Value columns
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE trips ADD COLUMN startTime TEXT');
       await db.execute('ALTER TABLE trips ADD COLUMN endTime TEXT');
@@ -93,21 +90,50 @@ class DatabaseService {
         'fullName': fullName,
         'emergencyContact': emergencyContact,
       });
+      await debugPrintAllUsers(); // Show users after adding
       return true;
     } catch (e) {
+      print("❌ Register Error: $e");
       return false;
     }
   }
 
+  // ✅ UPDATED: Detailed Debugging for Login
   Future<Map<String, dynamic>?> loginUser(String email, String password) async {
     final db = await instance.database;
     final hashedPassword = _hashPassword(password);
-    final result = await db.query(
+
+    print("\n🔍 --- LOGIN ATTEMPT ---");
+    print("Trying to log in with Email: '$email'");
+
+    // 1. Check if email exists
+    final userCheck = await db.query(
       'users',
-      where: 'email = ? AND password = ?',
-      whereArgs: [email, hashedPassword],
+      where: 'email = ?',
+      whereArgs: [email],
     );
-    return result.isNotEmpty ? result.first : null;
+
+    if (userCheck.isEmpty) {
+      print("❌ Login Failed: Email NOT FOUND in database.");
+      return null;
+    }
+
+    // 2. Check password
+    final storedUser = userCheck.first;
+    final storedHash = storedUser['password'];
+
+    print("✅ Email found.");
+    print("Input Password Hash:  $hashedPassword");
+    print("Stored Password Hash: $storedHash");
+
+    if (storedHash != hashedPassword) {
+      print("❌ Login Failed: Password HASH MISMATCH.");
+      return null;
+    }
+
+    print("✅ Login Success!");
+    print("-----------------------\n");
+    return storedUser;
   }
 
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
@@ -134,7 +160,6 @@ class DatabaseService {
     );
   }
 
-  // ✅ UPDATED: Accept and save all true value data points
   Future<void> saveTrip({
     required String duration,
     required String distance,
@@ -167,5 +192,19 @@ class DatabaseService {
   Future<int> deleteTrip(int id) async {
     final db = await instance.database;
     return await db.delete('trips', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> debugPrintAllUsers() async {
+    final db = await instance.database;
+    final result = await db.query('users');
+    print("\n========= 👤 USERS TABLE DUMP =========");
+    if (result.isEmpty) {
+      print("No users found.");
+    } else {
+      for (var row in result) {
+        print(row);
+      }
+    }
+    print("=======================================\n");
   }
 }

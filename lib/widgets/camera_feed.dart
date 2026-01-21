@@ -31,11 +31,11 @@ class CameraFeedState extends State<CameraFeed> {
   int _selectedCameraIndex = 0;
   bool _isProcessing = false;
 
-  // ✅ UPDATED: 250ms = 4 Frames Per Second (1000/250 = 4)
+  // 125ms = ~8 Frames Per Second (1000/125 = 8)
   DateTime _lastFrameTime = DateTime.now();
-  final int _throttleMillis = 250;
+  final int _throttleMillis = 125; // Adjust as needed
 
-  // ✅ Create instance of your Logic Engine
+  //  Create instance of your Logic Engine
   final DrowsinessLogic _logic = DrowsinessLogic();
 
   final FaceDetector _faceDetector = FaceDetector(
@@ -188,7 +188,7 @@ class CameraFeedState extends State<CameraFeed> {
     final metadata = InputImageMetadata(
       size: Size(image.width.toDouble(), image.height.toDouble()),
       rotation: rotation,
-      format: format!,
+      format: format,
       bytesPerRow: image.planes.first.bytesPerRow,
     );
 

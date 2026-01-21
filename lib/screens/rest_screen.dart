@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../services/PlacesService.dart';
@@ -5,7 +7,7 @@ import '../services/theme_service.dart';
 
 class RestScreen extends StatefulWidget {
   final Function(LatLng) onPlaceSelected;
-  final LatLng currentLocation;
+  final LatLng currentLocation; // ✅ Fixed: Expects a value, not a function
 
   const RestScreen({
     super.key,
@@ -42,6 +44,7 @@ class _RestScreenState extends State<RestScreen> {
   void didUpdateWidget(RestScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    // ✅ Logic: Check if user moved significantly (> 2km) to refresh places
     double distance = 0.0;
     if (_lastFetchLocation != null) {
       distance = _distanceCalculator.as(
@@ -121,7 +124,6 @@ class _RestScreenState extends State<RestScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  // ✅ REMOVED: (OpenStreetMap) text
                   Text(
                     "أماكن حقيقية حولك",
                     style: TextStyle(color: subColor, fontSize: 14),
