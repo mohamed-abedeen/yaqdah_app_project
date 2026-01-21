@@ -38,7 +38,7 @@ class _YaqdahAppState extends State<YaqdahApp> {
           theme: ThemeService.instance.lightTheme,
           darkTheme: ThemeService.instance.darkTheme,
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-          // ✅ FIXED: Using standard naming 'HomeScreen'
+
           home: HomeScreen(cameras: cameras),
         );
       },

@@ -1,81 +1,62 @@
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_background_messenger/flutter_background_messenger.dart';
 
 class LocationSmsService {
-  final String emergencyNumber = "1415";
+  final String emergencyNumber = "0921215480"; // with real emergency number
+  final FlutterBackgroundMessenger _messenger = FlutterBackgroundMessenger();
 
   /// Get current GPS location
   Future<Position?> _getCurrentLocation() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return null;
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return null;
-    }
-
-    permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return null;
-      }
+      if (permission == LocationPermission.denied) return null;
     }
 
-    if (permission == LocationPermission.deniedForever) {
-      return null;
-    }
+    if (permission == LocationPermission.deniedForever) return null;
 
     return await Geolocator.getCurrentPosition();
   }
 
-  /// Trigger the Emergency Protocol
+  /// Trigger the Emergency Protocol (Automatic Background Send)
   Future<void> sendEmergencyAlert() async {
     try {
-      // A. Get Location
+      // 1. Get Location
       Position? position = await _getCurrentLocation();
       String locationText = "Unknown Location";
       String mapsLink = "";
 
       if (position != null) {
         locationText = "${position.latitude}, ${position.longitude}";
+        // ✅ Google Maps Link
         mapsLink =
-            "https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}";
+            "http://maps.google.com/?q=${position.latitude},${position.longitude}";
       }
 
-      // B. Create Message
+      // 2. Create Message
       String message =
-          "EMERGENCY: The driver using Yaqdah has fallen asleep while driving! \n"
+          "EMERGENCY: The driver using Yaqdah has fallen asleep! \n"
           "Location: $locationText \n"
           "Map: $mapsLink";
 
-      // C. Send SMS
-      // Use standard 'sms:' scheme which works on most devices
-      final Uri smsLaunchUri = Uri(
-        scheme: 'sms',
-        path: emergencyNumber,
-        queryParameters: <String, String>{'body': message},
+      // 3. Send Automatically in Background
+      // Note: This sends immediately without opening the SMS app
+      bool success = await _messenger.sendSMS(
+        phoneNumber: emergencyNumber,
+        message: message,
       );
 
-      // Force external application launch
-      if (await canLaunchUrl(smsLaunchUri)) {
-        await launchUrl(smsLaunchUri, mode: LaunchMode.externalApplication);
+      if (success) {
+        if (kDebugMode) print("🚨 Emergency SMS sent successfully.");
       } else {
-        // Fallback: Try launching without checking 'canLaunchUrl'
-        // (Sometimes canLaunchUrl returns false on Android 11+ even if it works)
-        try {
-          await launchUrl(smsLaunchUri, mode: LaunchMode.externalApplication);
-        } catch (e) {
-          if (kDebugMode) {
-            print("Could not launch SMS: $e");
-          }
-        }
+        if (kDebugMode) print("❌ Failed to send Emergency SMS.");
       }
     } catch (e) {
-      if (kDebugMode) {
-        print("Emergency Service Error: $e");
-      }
+      if (kDebugMode) print("Emergency Service Error: $e");
     }
   }
 }

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../services/PlacesService.dart';
-import '../services/theme_service.dart'; // ✅ Import
+import '../services/theme_service.dart';
 
 class RestScreen extends StatefulWidget {
   final Function(LatLng) onPlaceSelected;
-  final LatLng Function() getCurrentLocation;
+  final LatLng currentLocation;
 
   const RestScreen({
     super.key,
     required this.onPlaceSelected,
-    required this.getCurrentLocation,
+    required this.currentLocation,
   });
 
   @override
@@ -21,6 +21,9 @@ class _RestScreenState extends State<RestScreen> {
   String _activeCategory = 'all';
   bool _isLoading = false;
   List<Map<String, dynamic>> _places = [];
+
+  LatLng? _lastFetchLocation;
+  final Distance _distanceCalculator = const Distance();
 
   final List<Map<String, dynamic>> _categories = [
     {'id': 'all', 'label': 'الكل', 'icon': Icons.map},
@@ -35,18 +38,46 @@ class _RestScreenState extends State<RestScreen> {
     _fetchPlaces();
   }
 
+  @override
+  void didUpdateWidget(RestScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    double distance = 0.0;
+    if (_lastFetchLocation != null) {
+      distance = _distanceCalculator.as(
+        LengthUnit.Meter,
+        _lastFetchLocation!,
+        widget.currentLocation,
+      );
+    }
+
+    bool significantMove = distance > 2000;
+
+    if (significantMove) {
+      _fetchPlaces();
+    }
+  }
+
   Future<void> _fetchPlaces() async {
-    setState(() => _isLoading = true);
-    LatLng center = widget.getCurrentLocation();
-    List<Map<String, dynamic>> results = await PlacesService().fetchPlaces(
-      center: center,
-      category: _activeCategory,
-    );
-    if (mounted) {
-      setState(() {
-        _places = results;
-        _isLoading = false;
-      });
+    if (_isLoading) return;
+    if (mounted) setState(() => _isLoading = true);
+
+    try {
+      List<Map<String, dynamic>> results = await PlacesService().fetchPlaces(
+        center: widget.currentLocation,
+        category: _activeCategory,
+      );
+
+      if (mounted) {
+        setState(() {
+          _places = results;
+          _isLoading = false;
+          _lastFetchLocation = widget.currentLocation;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching places: $e");
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -90,8 +121,9 @@ class _RestScreenState extends State<RestScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  // ✅ REMOVED: (OpenStreetMap) text
                   Text(
-                    "أماكن حقيقية حولك (OpenStreetMap)",
+                    "أماكن حقيقية حولك",
                     style: TextStyle(color: subColor, fontSize: 14),
                   ),
                 ],
@@ -299,7 +331,10 @@ class _RestScreenState extends State<RestScreen> {
           ),
           const SizedBox(height: 10),
           TextButton(
-            onPressed: _fetchPlaces,
+            onPressed: () {
+              setState(() => _lastFetchLocation = null);
+              _fetchPlaces();
+            },
             child: Text("حاول مرة أخرى", style: TextStyle(color: green)),
           ),
         ],

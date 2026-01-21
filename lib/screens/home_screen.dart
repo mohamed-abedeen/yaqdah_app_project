@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui';
-
 import 'rest_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
@@ -176,7 +175,7 @@ class _MainLayoutState extends State<MainLayout> {
       _status = newStatus;
       switch (newStatus) {
         case "AWAKE":
-          _drowsinessLevel = 15;
+          _drowsinessLevel = 0;
           break;
         case "DISTRACTED":
           _drowsinessLevel = 45;
@@ -185,7 +184,7 @@ class _MainLayoutState extends State<MainLayout> {
           _drowsinessLevel = 75;
           break;
         case "ASLEEP":
-          _drowsinessLevel = 95;
+          _drowsinessLevel = 100;
           break;
       }
     });
@@ -288,10 +287,10 @@ class _MainLayoutState extends State<MainLayout> {
         ],
       ),
       const ReportsScreen(),
+      // ✅ UPDATED: Passing the value directly
       RestScreen(
         onPlaceSelected: _handlePlaceSelected,
-        getCurrentLocation: () =>
-            _currentLocation ?? const LatLng(32.8872, 13.1913),
+        currentLocation: _currentLocation ?? const LatLng(32.8872, 13.1913),
       ),
       SettingsScreen(
         onLogout: widget.onLogout,

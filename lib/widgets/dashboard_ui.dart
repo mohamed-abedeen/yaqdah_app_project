@@ -11,7 +11,7 @@ import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../services/database_service.dart';
 import '../services/location_sms_service.dart';
-import '../services/theme_service.dart'; // ✅ Import ThemeService
+import '../services/theme_service.dart';
 
 const String _mapboxAccessToken =
     'pk.eyJ1IjoibW9ob3oiLCJhIjoiY21rNng0eTBhMG1tejNmc2hkZjg2djg5cSJ9.EhZ_hhGrpAGJRb1j-O5eIw';
@@ -97,11 +97,9 @@ class DashboardUIState extends State<DashboardUI>
       if (widget.status == "DROWSY") {
         _tripEvents.add("$now: ⚠️ Drowsiness Detected");
       } else if (widget.status == "ASLEEP") {
-        // ✅ FIXED: Only mark ASLEEP as extreme danger
         _tripEvents.add("$now: 🚨 Danger: Asleep");
         setState(() => _hasDangerousEvents = true);
       } else if (widget.status == "DISTRACTED") {
-        // ✅ FIXED: Log Distraction separately
         _tripEvents.add("$now: ⚠️ Distraction Detected");
       }
     }
@@ -291,28 +289,46 @@ class DashboardUIState extends State<DashboardUI>
     });
   }
 
+  // Uses OpenStreetMap (Nominatim) for searching locations
   void _performSearch(String query, StateSetter setModalState) async {
     if (query.isEmpty) return;
     setModalState(() => _isSearching = true);
+
+    // Using Nominatim API
     final url = Uri.parse(
-      "https://api.mapbox.com/geocoding/v5/mapbox.places/$query.json?access_token=$_mapboxAccessToken&autocomplete=true&limit=5&country=LY",
+      "https://nominatim.openstreetmap.org/search"
+      "?q=$query"
+      "&format=json"
+      "&limit=5"
+      "&countrycodes=ly" // Restricted to Libya
+      "&addressdetails=1",
     );
+
     try {
-      final response = await http.get(url);
+      // User-Agent is required by OSM policy
+      final response = await http.get(
+        url,
+        headers: {'User-Agent': 'com.example.yaqdah_app_student_project'},
+      );
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setModalState(() {
-          _searchResults = data['features'];
+          _searchResults = data;
           _isSearching = false;
         });
       }
     } catch (e) {
+      debugPrint("Search Error: $e");
       setModalState(() => _isSearching = false);
     }
   }
 
   void _openSearchSheet() {
-    final theme = Theme.of(context); // ✅ Get theme
+    final theme = Theme.of(context);
+    _searchResults = [];
+    _searchController.clear();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -327,14 +343,13 @@ class DashboardUIState extends State<DashboardUI>
                 children: [
                   TextField(
                     controller: _searchController,
-                    style: theme.textTheme.bodyMedium, // ✅ Dynamic Text Color
+                    style: theme.textTheme.bodyMedium,
                     decoration: InputDecoration(
-                      hintText: "Search destination...",
+                      hintText: "Search places (OSM)...",
                       hintStyle: TextStyle(color: Colors.grey),
                       prefixIcon: Icon(Icons.search, color: theme.primaryColor),
                       filled: true,
-                      fillColor:
-                          theme.scaffoldBackgroundColor, // ✅ Dynamic Input BG
+                      fillColor: theme.scaffoldBackgroundColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -359,19 +374,25 @@ class DashboardUIState extends State<DashboardUI>
                       itemCount: _searchResults.length,
                       itemBuilder: (context, index) {
                         final result = _searchResults[index];
+
+                        // ✅ Parse Nominatim Data (Different from Mapbox)
+                        final name = result['display_name'].toString().split(
+                          ',',
+                        )[0];
+                        final fullAddress = result['display_name'];
+
                         return ListTile(
-                          title: Text(
-                            result['text'] ?? "",
-                            style: theme.textTheme.bodyMedium,
-                          ),
+                          title: Text(name, style: theme.textTheme.bodyMedium),
                           subtitle: Text(
-                            result['place_name'] ?? "",
-                            maxLines: 1,
-                            style: TextStyle(color: Colors.grey),
+                            fullAddress,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
                           ),
                           onTap: () {
-                            double lon = result['center'][0];
-                            double lat = result['center'][1];
+                            // ✅ Parse lat/lon strings to doubles
+                            double lat = double.parse(result['lat']);
+                            double lon = double.parse(result['lon']);
                             Navigator.pop(context);
                             startNavigation(LatLng(lat, lon));
                           },

@@ -31,6 +31,10 @@ class CameraFeedState extends State<CameraFeed> {
   int _selectedCameraIndex = 0;
   bool _isProcessing = false;
 
+  // ✅ UPDATED: 250ms = 4 Frames Per Second (1000/250 = 4)
+  DateTime _lastFrameTime = DateTime.now();
+  final int _throttleMillis = 250;
+
   // ✅ Create instance of your Logic Engine
   final DrowsinessLogic _logic = DrowsinessLogic();
 
@@ -53,7 +57,8 @@ class CameraFeedState extends State<CameraFeed> {
 
     _controller = CameraController(
       widget.cameras[_selectedCameraIndex],
-      ResolutionPreset.low,
+      // Use Medium (480p/720p) - Good balance of speed/quality
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
           ? ImageFormatGroup.nv21
@@ -74,6 +79,12 @@ class CameraFeedState extends State<CameraFeed> {
 
   void switchCamera() {
     if (widget.cameras.length < 2) return;
+
+    // Stop old stream before switching
+    _controller?.stopImageStream();
+    _controller?.dispose();
+    _controller = null;
+
     setState(() {
       _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
     });
@@ -82,8 +93,17 @@ class CameraFeedState extends State<CameraFeed> {
 
   // --- AI PROCESSING LOOP ---
   void _processImage(CameraImage image) async {
+    // 1. Basic Checks
     if (_isProcessing || !widget.isMonitoring) return;
+
+    // ✅ CHECK: If less than 250ms passed, SKIP this frame.
+    if (DateTime.now().difference(_lastFrameTime).inMilliseconds <
+        _throttleMillis) {
+      return;
+    }
+
     _isProcessing = true;
+    _lastFrameTime = DateTime.now(); // Reset timer
 
     try {
       final inputImage = _inputImageFromCameraImage(image);
@@ -93,7 +113,6 @@ class CameraFeedState extends State<CameraFeed> {
 
       if (faces.isEmpty) {
         // If no face seen, wait a moment then trigger Distracted
-        // (For now, we can map empty directly to Distracted or handle inside Logic)
         widget.onStatusChange("DISTRACTED");
       } else {
         final face = faces.first;
@@ -128,6 +147,8 @@ class CameraFeedState extends State<CameraFeed> {
   }
 
   InputImage? _inputImageFromCameraImage(CameraImage image) {
+    if (_controller == null) return null; // Safety check
+
     final camera = widget.cameras[_selectedCameraIndex];
     final sensorOrientation = camera.sensorOrientation;
 
@@ -153,14 +174,11 @@ class CameraFeedState extends State<CameraFeed> {
     if (format == null ||
         (Platform.isAndroid && format != InputImageFormat.nv21) ||
         (Platform.isIOS && format != InputImageFormat.bgra8888)) {
-      if (format == null) return null;
+      return null;
     }
-
-    final validFormat = format ?? InputImageFormat.nv21;
 
     if (image.planes.isEmpty) return null;
 
-    final plane = image.planes.first;
     final WriteBuffer allBytes = WriteBuffer();
     for (final Plane plane in image.planes) {
       allBytes.putUint8List(plane.bytes);
@@ -170,8 +188,8 @@ class CameraFeedState extends State<CameraFeed> {
     final metadata = InputImageMetadata(
       size: Size(image.width.toDouble(), image.height.toDouble()),
       rotation: rotation,
-      format: validFormat,
-      bytesPerRow: plane.bytesPerRow,
+      format: format!,
+      bytesPerRow: image.planes.first.bytesPerRow,
     );
 
     return InputImage.fromBytes(bytes: bytes, metadata: metadata);
@@ -186,9 +204,9 @@ class CameraFeedState extends State<CameraFeed> {
 
   @override
   void dispose() {
+    _controller?.stopImageStream();
     _controller?.dispose();
     _faceDetector.close();
-    _logic.dispose(); // ✅ Clean up logic
     super.dispose();
   }
 

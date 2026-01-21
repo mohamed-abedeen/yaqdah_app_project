@@ -4,7 +4,6 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 class PlacesService {
-  // Singleton
   static final PlacesService _instance = PlacesService._internal();
   factory PlacesService() => _instance;
   PlacesService._internal();
@@ -14,101 +13,92 @@ class PlacesService {
     required String category,
     int radius = 5000,
   }) async {
-    String queryContent = "";
+    String tagQuery = "";
 
-    // 1. Define Queries
-    String cafeQuery =
-        """
-      node["amenity"~"cafe|fast_food|restaurant"](around:$radius,${center.latitude},${center.longitude});
-    """;
-
-    // ✅ REFINED: Removed 'guest_house', 'hostel', 'apartment' to hide private houses
-    String hotelQuery =
-        """
-      node["tourism"~"hotel|motel"](around:$radius,${center.latitude},${center.longitude});
-    """;
-
-    String mosqueQuery =
-        """
-      node["amenity"="place_of_worship"]["religion"="muslim"](around:$radius,${center.latitude},${center.longitude});
-    """;
-
-    // 2. Select Query based on Category
+    // ✅ 1. STRICT FILTERING: Only Hotels & Motels (No Guest Houses)
     if (category == 'hotel') {
-      queryContent = hotelQuery;
+      tagQuery = '["tourism"~"hotel|motel"]';
     } else if (category == 'cafe') {
-      queryContent = cafeQuery;
+      tagQuery = '["amenity"~"cafe|fast_food|restaurant"]';
     } else if (category == 'mosque') {
-      queryContent = mosqueQuery;
+      tagQuery = '["amenity"="place_of_worship"]["religion"="muslim"]';
     } else {
-      // 'all' -> Combine essential ones (Removed Rest Areas)
-      queryContent = cafeQuery + hotelQuery;
+      // "All" - Filtered to exclude houses too
+      tagQuery = '["tourism"~"hotel|motel"]';
     }
 
-    final String fullQuery = '[out:json];($queryContent);out center;';
-    final url = Uri.parse(
-      "https://overpass-api.de/api/interpreter?data=$fullQuery",
-    );
+    // 2. Build Overpass Query
+    final String query =
+        """
+      [out:json][timeout:25];
+      (
+        node$tagQuery(around:$radius,${center.latitude},${center.longitude});
+        way$tagQuery(around:$radius,${center.latitude},${center.longitude});
+      );
+      out body;
+      >;
+      out skel qt;
+    """;
+
+    final url = Uri.parse("https://overpass-api.de/api/interpreter");
 
     try {
-      final response = await http.get(url);
+      final response = await http.post(url, body: query);
 
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
-        List<dynamic> elements = data['elements'];
+        final List<dynamic> elements = data['elements'];
+
+        List<Map<String, dynamic>> places = [];
         final Distance distanceCalculator = const Distance();
 
-        List<Map<String, dynamic>> results = [];
+        for (var element in elements) {
+          if (element['tags'] == null) continue;
+          if (!element['tags'].containsKey('name')) continue;
 
-        for (var place in elements) {
-          var tags = place['tags'] ?? {};
-          String name =
-              tags['name:ar'] ??
-              tags['name:en'] ??
-              tags['name'] ??
-              'مكان بدون اسم';
+          double lat = element['lat'] ?? 0.0;
+          double lon = element['lon'] ?? 0.0;
 
-          String type = 'place';
-          if (tags.containsKey('tourism'))
-            type = 'hotel';
-          else if (tags['religion'] == 'muslim')
-            type = 'mosque';
-          else if (tags['amenity'] == 'cafe' || tags['amenity'] == 'fast_food')
-            type = 'cafe';
+          if (lat == 0.0 && element['center'] != null) {
+            lat = element['center']['lat'];
+            lon = element['center']['lon'];
+          }
 
-          double lat = place['lat'] ?? place['center']['lat'];
-          double lon = place['lon'] ?? place['center']['lon'];
+          if (lat == 0.0 || lon == 0.0) continue;
+
           LatLng pos = LatLng(lat, lon);
-
           double distMeters = distanceCalculator.as(
             LengthUnit.Meter,
             center,
             pos,
           );
 
-          results.add({
-            'id': place['id'],
-            'name': name,
-            'type': type,
-            'address': tags['addr:street'] ?? 'قريب منك',
+          places.add({
+            'id': element['id'].toString(),
+            'name': element['tags']['name'] ?? "Unknown",
+            'type': category == 'all' ? 'hotel' : category,
+            'address':
+                element['tags']['addr:street'] ?? "Location", // Simplified text
             'distance': (distMeters / 1000).toStringAsFixed(1),
             'distanceVal': distMeters,
             'location': pos,
           });
         }
 
-        results.sort(
+        places.sort(
           (a, b) => (a['distanceVal'] as double).compareTo(
             b['distanceVal'] as double,
           ),
         );
 
-        return results;
+        return places;
       }
     } catch (e) {
-      debugPrint("Error fetching places: $e");
+      if (kDebugMode) {
+        print("Error fetching Overpass places: $e");
+      }
     }
 
-    return <Map<String, dynamic>>[];
+    return [];
   }
 }
