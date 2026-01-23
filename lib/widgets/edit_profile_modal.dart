@@ -1,5 +1,3 @@
-// ignore_for_file: deprecated_member_use
-
 import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../services/theme_service.dart';
@@ -7,11 +5,14 @@ import '../services/theme_service.dart';
 class EditProfileModal extends StatefulWidget {
   final Map<String, dynamic> user;
   final VoidCallback onClose;
+  // ✅ NEW: Callback to send updated data back to parent
+  final Function(String name, String emergency) onSave;
 
   const EditProfileModal({
     super.key,
     required this.user,
     required this.onClose,
+    required this.onSave, // ✅ Required
   });
 
   @override
@@ -43,6 +44,9 @@ class _EditProfileModalState extends State<EditProfileModal> {
       _nameController.text,
       _emergencyController.text,
     );
+
+    // ✅ NEW: Notify parent about the change immediately
+    widget.onSave(_nameController.text, _emergencyController.text);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -88,7 +92,7 @@ class _EditProfileModalState extends State<EditProfileModal> {
           child: Container(
             height: MediaQuery.of(context).size.height * 0.85,
             decoration: BoxDecoration(
-              color: theme.scaffoldBackgroundColor, // ✅ Dynamic BG
+              color: theme.scaffoldBackgroundColor,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(30),
               ),
@@ -295,12 +299,10 @@ class _EditProfileModalState extends State<EditProfileModal> {
             controller: controller,
             obscureText: isPass,
             readOnly: readOnly,
-            style: TextStyle(
-              color: theme.textTheme.bodyMedium!.color,
-            ), // ✅ Dynamic Text
+            style: TextStyle(color: theme.textTheme.bodyMedium!.color),
             decoration: InputDecoration(
               filled: true,
-              fillColor: theme.cardColor, // ✅ Dynamic Input BG
+              fillColor: theme.cardColor,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: theme.dividerColor),

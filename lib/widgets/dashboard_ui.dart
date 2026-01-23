@@ -1,5 +1,3 @@
-// ignore_for_file: unused_field, deprecated_member_use, curly_braces_in_flow_control_structures
-
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -29,6 +27,7 @@ class DashboardUI extends StatefulWidget {
   final bool isListening;
   final VoidCallback onSwitchCamera;
   final String currentCameraName;
+  final String emergencyContact; // ✅ Added Parameter
 
   const DashboardUI({
     super.key,
@@ -42,6 +41,7 @@ class DashboardUI extends StatefulWidget {
     required this.isListening,
     required this.onSwitchCamera,
     required this.currentCameraName,
+    required this.emergencyContact, // ✅ Added Parameter
   });
 
   @override
@@ -240,7 +240,8 @@ class DashboardUIState extends State<DashboardUI>
   void _triggerSOSManual() {
     setState(() => _hasDangerousEvents = true);
     _tripEvents.add("${DateTime.now().toIso8601String()}: 🆘 Manual SOS");
-    _smsService.sendEmergencyAlert();
+    // ✅ Use the dynamic contact number
+    _smsService.sendEmergencyAlert(targetNumber: widget.emergencyContact);
   }
 
   void startNavigation(LatLng dest) async {
@@ -411,24 +412,21 @@ class DashboardUIState extends State<DashboardUI>
     );
   }
 
-  // ✅ UPDATED: Added "Idle/Ready" State logic
   Map<String, dynamic> _getStatusConfig() {
     final red = ThemeService.red;
     final orange = ThemeService.orange;
     final green = ThemeService.Green;
     final blue = ThemeService.blue;
 
-    // 1. Check if Trip is Active
     if (!widget.isMonitoring) {
       return {
         'color': blue,
         'bgColor': blue.withOpacity(0.2),
         'borderColor': blue.withOpacity(0.5),
-        'text': "جاهز للرحلة", // Ready for trip / Waiting
+        'text': "جاهز للرحلة",
       };
     }
 
-    // 2. Active Trip Logic
     if (widget.status == "ASLEEP") {
       return {
         'color': red,
@@ -462,7 +460,7 @@ class DashboardUIState extends State<DashboardUI>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context); // ✅ Get Current Theme
+    final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
@@ -658,7 +656,6 @@ class DashboardUIState extends State<DashboardUI>
                       Column(
                         children: [
                           Text(
-                            // ✅ Hide percentage if idle
                             !widget.isMonitoring
                                 ? "--"
                                 : "${widget.drowsinessLevel.toInt()}%",
@@ -780,7 +777,6 @@ class DashboardUIState extends State<DashboardUI>
     );
   }
 
-  // ✅ UPDATED: Use Theme.of(context) inside helpers
   Widget _smallMapButton({
     required IconData icon,
     required VoidCallback onTap,
@@ -827,7 +823,6 @@ class DashboardUIState extends State<DashboardUI>
           onTap: onTap,
           child: Container(
             decoration: BoxDecoration(
-              // In Light mode, make buttons simpler, Dark mode uses glass
               color: isDark ? color.withOpacity(0.15) : theme.cardColor,
               border: Border.all(
                 color: isDark ? color.withOpacity(0.4) : theme.dividerColor,
@@ -872,14 +867,14 @@ class DashboardUIState extends State<DashboardUI>
     Color iconColor, {
     required String unit,
   }) {
-    final theme = Theme.of(context); // ✅ Dynamic Theme
+    final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.textTheme.bodyMedium!.color;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: theme.cardColor, // ✅ Changed from hardcoded
+        color: theme.cardColor,
         border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(16),
       ),

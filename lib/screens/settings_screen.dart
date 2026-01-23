@@ -1,5 +1,3 @@
-// ignore_for_file: deprecated_member_use
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/edit_profile_modal.dart';
@@ -9,11 +7,14 @@ import 'test_mode_screen.dart';
 class SettingsScreen extends StatefulWidget {
   final Map<String, dynamic> currentUser;
   final VoidCallback onLogout;
+  // ✅ NEW: Receive update function from Home
+  final Function(Map<String, dynamic>) onUpdateUser;
 
   const SettingsScreen({
     super.key,
     required this.currentUser,
     required this.onLogout,
+    required this.onUpdateUser, // ✅ Required
   });
 
   @override
@@ -57,6 +58,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => EditProfileModal(
         user: widget.currentUser,
         onClose: () => Navigator.pop(context),
+        // ✅ NEW: When modal saves, we create the new user object and pass it up
+        onSave: (newName, newEmergency) {
+          // Create a new map to ensure state update triggers
+          Map<String, dynamic> updatedUser = Map<String, dynamic>.from(
+            widget.currentUser,
+          );
+          updatedUser['fullName'] = newName;
+          updatedUser['emergencyContact'] = newEmergency;
+
+          widget.onUpdateUser(updatedUser); // Update Parent (Home)
+        },
       ),
     );
   }

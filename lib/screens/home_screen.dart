@@ -15,6 +15,7 @@ import '../services/database_service.dart';
 import '../services/audio_service.dart';
 import '../services/gemini_service.dart';
 import '../services/location_sms_service.dart';
+import '../services/theme_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -59,6 +60,13 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // ✅ NEW: Update local state when user edits profile
+  void _updateUser(Map<String, dynamic> updatedUser) {
+    setState(() {
+      _currentUser = updatedUser;
+    });
+  }
+
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_email');
@@ -82,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
             cameras: widget.cameras,
             onLogout: _logout,
             currentUser: _currentUser,
+            onUpdateUser: _updateUser, // ✅ Pass callback
           )
         : LoginScreen(onLogin: _login);
   }
@@ -91,12 +100,14 @@ class MainLayout extends StatefulWidget {
   final List<CameraDescription> cameras;
   final VoidCallback onLogout;
   final Map<String, dynamic> currentUser;
+  final Function(Map<String, dynamic>) onUpdateUser; // ✅ Required
 
   const MainLayout({
     super.key,
     required this.cameras,
     required this.onLogout,
     required this.currentUser,
+    required this.onUpdateUser, // ✅ Required
   });
 
   @override
@@ -116,7 +127,6 @@ class _MainLayoutState extends State<MainLayout> {
   bool _isListening = false;
   String _currentCameraName = "Camera";
 
-  // ✅ 1. ADDED: Flag for Staggered Loading
   bool _isCameraReady = false;
 
   final AudioService _audio = AudioService();
@@ -136,7 +146,6 @@ class _MainLayoutState extends State<MainLayout> {
     _audio.init();
     if (widget.cameras.isNotEmpty) _updateCameraName(0);
 
-    // ✅ 2. ADDED: Delay camera initialization to prevent UI freeze
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted) setState(() => _isCameraReady = true);
     });
@@ -212,7 +221,9 @@ class _MainLayoutState extends State<MainLayout> {
 
   void _triggerSOS() async {
     await _audio.playAlarm();
-    _smsService.sendEmergencyAlert();
+    // ✅ Use the current user's emergency number
+    String contact = widget.currentUser['emergencyContact'] ?? "";
+    _smsService.sendEmergencyAlert(targetNumber: contact);
   }
 
   void _toggleListening() async {
@@ -254,7 +265,6 @@ class _MainLayoutState extends State<MainLayout> {
     final List<Widget> screens = [
       Stack(
         children: [
-          // ✅ 3. ADDED: Only load CameraFeed when ready
           if (_isCameraReady)
             Offstage(
               offstage: true,
@@ -280,9 +290,11 @@ class _MainLayoutState extends State<MainLayout> {
             onMicToggle: _toggleListening,
             currentCameraName: _currentCameraName,
             onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
+            // ✅ Pass current user's emergency number
+            emergencyContact: widget.currentUser['emergencyContact'] ?? "",
           ),
           Positioned(
-            bottom: 110,
+            bottom: 40,
             right: 20,
             child: FloatingActionButton(
               heroTag: "mic",
@@ -294,7 +306,6 @@ class _MainLayoutState extends State<MainLayout> {
         ],
       ),
       const ReportsScreen(),
-      // ✅ 4. FIXED: Passed `currentLocation` as value instead of function
       RestScreen(
         onPlaceSelected: _handlePlaceSelected,
         currentLocation: _currentLocation ?? const LatLng(32.8872, 13.1913),
@@ -302,6 +313,7 @@ class _MainLayoutState extends State<MainLayout> {
       SettingsScreen(
         onLogout: widget.onLogout,
         currentUser: widget.currentUser,
+        onUpdateUser: widget.onUpdateUser, // ✅ Pass callback down
       ),
     ];
 

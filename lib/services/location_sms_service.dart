@@ -3,7 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_background_messenger/flutter_background_messenger.dart';
 
 class LocationSmsService {
-  final String emergencyNumber = "0921215480"; // with real emergency number
+  // Remove hardcoded number. We now pass it dynamically.
   final FlutterBackgroundMessenger _messenger = FlutterBackgroundMessenger();
 
   /// Get current GPS location
@@ -23,7 +23,12 @@ class LocationSmsService {
   }
 
   /// Trigger the Emergency Protocol (Automatic Background Send)
-  Future<void> sendEmergencyAlert() async {
+  Future<void> sendEmergencyAlert({required String targetNumber}) async {
+    if (targetNumber.isEmpty) {
+      if (kDebugMode) print("❌ No emergency number provided.");
+      return;
+    }
+
     try {
       // 1. Get Location
       Position? position = await _getCurrentLocation();
@@ -44,16 +49,15 @@ class LocationSmsService {
           "Map: $mapsLink";
 
       // 3. Send Automatically in Background
-      // Note: This sends immediately without opening the SMS app
       bool success = await _messenger.sendSMS(
-        phoneNumber: emergencyNumber,
+        phoneNumber: targetNumber,
         message: message,
       );
 
       if (success) {
-        if (kDebugMode) print("🚨 Emergency SMS sent successfully.");
+        if (kDebugMode) print("🚨 Emergency SMS sent to $targetNumber");
       } else {
-        if (kDebugMode) print("❌ Failed to send Emergency SMS.");
+        if (kDebugMode) print("❌ Failed to send SMS to $targetNumber");
       }
     } catch (e) {
       if (kDebugMode) print("Emergency Service Error: $e");
