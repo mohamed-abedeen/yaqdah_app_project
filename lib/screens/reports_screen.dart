@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart' as intl;
 import '../services/database_service.dart';
-import '../services/theme_service.dart'; // ✅ Import ThemeService
+import '../services/theme_service.dart';
 import '../widgets/trip_detail_modal.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -53,7 +53,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final textColor = theme.textTheme.bodyMedium!.color!;
     final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
-    // ✅ Colors from Theme Service
     final green = theme.primaryColor;
     final red = theme.colorScheme.error;
     final orange = ThemeService.orange;
@@ -62,6 +61,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
+      // ✅ REMOVED: FloatingActionButton (Clean UI)
       body: SafeArea(
         child: FutureBuilder<List<Map<String, dynamic>>>(
           future: DatabaseService.instance.getTrips(),
@@ -87,6 +87,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             double safePct = total == 0 ? 0 : (safeTrips / total);
             double alertPct = total == 0 ? 0 : (tripsWithAlerts / total);
 
+            // ✅ Logic to display sum of all alerts in the header
+            int totalAlerts = (stats['drowsyEvents'] as int) + 
+                              (stats['emergencyEvents'] as int);
+
             return CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(
@@ -96,7 +100,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Reports & Statistics",
+                          "التقارير والإحصائيات",
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -104,7 +108,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                         ),
                         Text(
-                          "Comprehensive driving activity analysis",
+                          "تحليل شامل لنشاط القيادة",
                           style: TextStyle(color: subColor, fontSize: 14),
                         ),
                       ],
@@ -144,7 +148,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  "General Statistics",
+                                  "الإحصائيات العامة",
                                   style: TextStyle(
                                     color: textColor,
                                     fontWeight: FontWeight.bold,
@@ -153,8 +157,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                                 Text(
                                   _activeFilter == 'week'
-                                      ? "This Week"
-                                      : "All Time",
+                                      ? "هذا الأسبوع"
+                                      : "كل الوقت",
                                   style: TextStyle(
                                     color: subColor,
                                     fontSize: 12,
@@ -169,7 +173,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           children: [
                             _buildStatItem(
                               "${stats['count']}",
-                              "Trips",
+                              "رحلات",
                               green,
                               subColor,
                             ),
@@ -180,7 +184,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ),
                             _buildStatItem(
                               stats['distance'].toString(),
-                              "KM",
+                              "كم",
                               blue,
                               subColor,
                             ),
@@ -190,8 +194,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               color: theme.dividerColor,
                             ),
                             _buildStatItem(
-                              "${stats['drowsyEvents']}",
-                              "Alerts",
+                              "$totalAlerts", // ✅ Correctly displays total alerts
+                              "تنبيهات",
                               orange,
                               subColor,
                             ),
@@ -296,7 +300,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "Trip Status Distribution",
+                              "توزيع حالة الرحلات",
                               style: TextStyle(color: subColor, fontSize: 12),
                             ),
                             const SizedBox(height: 8),
@@ -323,7 +327,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  "Safe ${(safePct * 100).toStringAsFixed(0)}%",
+                                  "آمنة ${(safePct * 100).toStringAsFixed(0)}%",
                                   style: TextStyle(
                                     color: green,
                                     fontSize: 12,
@@ -331,7 +335,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   ),
                                 ),
                                 Text(
-                                  "Alerts ${(alertPct * 100).toStringAsFixed(0)}%",
+                                  "تنبيهات ${(alertPct * 100).toStringAsFixed(0)}%",
                                   style: TextStyle(
                                     color: orange,
                                     fontSize: 12,
@@ -349,22 +353,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
                             _miniDetailStat(
-                              "Time",
+                              "الوقت",
                               stats['totalTime'].toString(),
                               green,
                               textColor,
                               subColor,
                             ),
                             _miniDetailStat(
-                              "Drowsy",
-                              "${stats['drowsyEvents']} Events",
+                              "نعاس",
+                              "${stats['drowsyEvents']}",
                               orange,
                               textColor,
                               subColor,
                             ),
                             _miniDetailStat(
-                              "Emergency",
-                              "${stats['emergencyEvents']} Times",
+                              "طوارئ",
+                              "${stats['emergencyEvents']}",
                               red,
                               textColor,
                               subColor,
@@ -384,9 +388,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
                         children: [
-                          _filterTab("All", 'all', theme),
-                          _filterTab("Week", 'week', theme),
-                          _filterTab("Month", 'month', theme),
+                          _filterTab("الكل", 'all', theme),
+                          _filterTab("أسبوع", 'week', theme),
+                          _filterTab("شهر", 'month', theme),
                         ],
                       ),
                     ),
@@ -575,7 +579,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        isSafe ? "Safe Trip" : "Alert",
+                        isSafe ? "آمنة" : "تنبيه",
                         style: TextStyle(
                           color: isSafe ? green : orange,
                           fontSize: 10,
@@ -593,7 +597,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               children: [
                 _miniStat(
                   Icons.access_time,
-                  "Duration",
+                  "المدة",
                   trip['duration'],
                   purple,
                   textColor,
@@ -601,7 +605,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 _miniStat(
                   Icons.map,
-                  "Distance",
+                  "المسافة",
                   trip['distance'],
                   blue,
                   textColor,
@@ -609,7 +613,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 _miniStat(
                   Icons.warning_amber,
-                  "Alerts",
+                  "التنبيهات",
                   "$alertsCount",
                   orange,
                   textColor,
@@ -683,7 +687,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       dist += double.tryParse(dStr) ?? 0;
       if (t['alerts'] != null) {
         try {
-          List<dynamic> list = json.decode(t['alerts']);
+          List<dynamic> list = (t['alerts'] is String) 
+              ? json.decode(t['alerts']) 
+              : t['alerts']; 
           for (var item in list) {
             String s = item.toString().toLowerCase();
             if (s.contains('manual') || s.contains('sos'))

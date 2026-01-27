@@ -90,7 +90,7 @@ class DatabaseService {
         'fullName': fullName,
         'emergencyContact': emergencyContact,
       });
-      await debugPrintAllUsers(); // Show users after adding
+      await debugPrintAllUsers();
       return true;
     } catch (e) {
       print("❌ Register Error: $e");
@@ -98,41 +98,21 @@ class DatabaseService {
     }
   }
 
-  // ✅ UPDATED: Detailed Debugging for Login
   Future<Map<String, dynamic>?> loginUser(String email, String password) async {
     final db = await instance.database;
     final hashedPassword = _hashPassword(password);
 
-    print("\n🔍 --- LOGIN ATTEMPT ---");
-    print("Trying to log in with Email: '$email'");
-
-    // 1. Check if email exists
+    // Debug logic preserved
     final userCheck = await db.query(
       'users',
       where: 'email = ?',
       whereArgs: [email],
     );
+    if (userCheck.isEmpty) return null;
 
-    if (userCheck.isEmpty) {
-      print("❌ Login Failed: Email NOT FOUND in database.");
-      return null;
-    }
-
-    // 2. Check password
     final storedUser = userCheck.first;
-    final storedHash = storedUser['password'];
+    if (storedUser['password'] != hashedPassword) return null;
 
-    print("✅ Email found.");
-    print("Input Password Hash:  $hashedPassword");
-    print("Stored Password Hash: $storedHash");
-
-    if (storedHash != hashedPassword) {
-      print("❌ Login Failed: Password HASH MISMATCH.");
-      return null;
-    }
-
-    print("✅ Login Success!");
-    print("-----------------------\n");
     return storedUser;
   }
 
@@ -160,6 +140,7 @@ class DatabaseService {
     );
   }
 
+  // ✅ UPDATED: Added [customDate] parameter for random test data
   Future<void> saveTrip({
     required String duration,
     required String distance,
@@ -169,10 +150,13 @@ class DatabaseService {
     required String endTime,
     required String avgSpeed,
     required String maxSpeed,
+    String? customDate, // ✅ Optional date override
   }) async {
     final db = await instance.database;
     await db.insert('trips', {
-      'date': DateTime.now().toIso8601String(),
+      'date':
+          customDate ??
+          DateTime.now().toIso8601String(), // Use custom or current
       'duration': duration,
       'distance': distance,
       'status': status,
@@ -197,14 +181,10 @@ class DatabaseService {
   Future<void> debugPrintAllUsers() async {
     final db = await instance.database;
     final result = await db.query('users');
-    print("\n========= 👤 USERS TABLE DUMP =========");
-    if (result.isEmpty) {
-      print("No users found.");
-    } else {
+    if (result.isNotEmpty) {
       for (var row in result) {
         print(row);
       }
     }
-    print("=======================================\n");
   }
 }

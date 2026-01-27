@@ -1,3 +1,5 @@
+// ignore_for_file: unused_field, deprecated_member_use, curly_braces_in_flow_control_structures
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -48,6 +50,7 @@ class DashboardUI extends StatefulWidget {
   State<DashboardUI> createState() => DashboardUIState();
 }
 
+// ✅ PUBLIC STATE CLASS (Required for GlobalKey in HomeScreen)
 class DashboardUIState extends State<DashboardUI>
     with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
@@ -240,7 +243,7 @@ class DashboardUIState extends State<DashboardUI>
   void _triggerSOSManual() {
     setState(() => _hasDangerousEvents = true);
     _tripEvents.add("${DateTime.now().toIso8601String()}: 🆘 Manual SOS");
-    // ✅ Use the dynamic contact number
+    // ✅ Use the dynamic contact number from HomeScreen
     _smsService.sendEmergencyAlert(targetNumber: widget.emergencyContact);
   }
 
