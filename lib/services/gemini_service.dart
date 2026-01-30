@@ -2,22 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
-  // ⚠️ CRITICAL: Paste your actual API Key here
-  static const String _apiKey = '';
+  static const String _apiKey = 'AIzaSyAUFsbasVXZtubHgxGgd2KdFZIp-oqIF0g';
+  // Replace with your actual API key after you publish the app.
 
   late GenerativeModel _model;
 
-  // ✅ FIXED: Use the correct model name (1.5, not 2.5)
-  String _currentModelName = 'gemini-1.5-flash';
+  String _currentModelName = 'gemini-2.5-flash';
 
   GeminiService() {
     _model = GenerativeModel(model: _currentModelName, apiKey: _apiKey);
+
+    // Attempt to validate access immediately
     _checkModelAccess();
   }
 
   // --- DIAGNOSTIC TOOL ---
   Future<void> _checkModelAccess() async {
     try {
+      // We send a dummy prompt to see if the model is reachable
       debugPrint(
         "GeminiService: Testing model access for $_currentModelName...",
       );
@@ -29,12 +31,13 @@ class GeminiService {
         "GeminiService: ❌ Access Failed for $_currentModelName. Error: $e",
       );
 
-      // Fallback logic if the model name is wrong or deprecated
+      // If Flash fails, fallback to Pro
       if (e.toString().contains("404") || e.toString().contains("not found")) {
         debugPrint(
           "GeminiService: 🔄 Switching to 'gemini-pro' as fallback...",
         );
-        _currentModelName = 'gemini-pro';
+
+        _currentModelName = 'gemini-pro'; // Update our local tracker
         _model = GenerativeModel(model: _currentModelName, apiKey: _apiKey);
       }
     }
@@ -45,15 +48,20 @@ class GeminiService {
     switch (state) {
       case "DISTRACTED":
         prompt =
-            "You are a co-pilot. The driver is distracted. Speak in Arabic. Warning the driver by giving him a good advice. Keep it short .";
+            "You are a smart driver assistance AI. The driver is distracted and looking away from the road. "
+            "Speak in Arabic. Give a sharp, authoritative, and very short command (max 5 words) to make him look at the road immediately. "
+            "Choose the most effective phrase for this critical safety situation. Example: 'انتبه للطريق فوراً!'";
         break;
       case "DROWSY":
         prompt =
-            "You are a co-pilot. The driver is drowsy. Speak in Arabic. Tell the driver to wake up and suggest a him good advice like take a break or open the window or stopping for coffee or whatever suits. Keep it short .";
+            "You are a smart driver assistance AI. The driver is showing signs of drowsiness (closing eyes, yawning). "
+            "Speak in Arabic. Your goal is to wake him up. Give the single best piece of advice for this moment (e.g., open window, stop car, wash face). "
+            "Keep it short, urgent, and loud. (Max 8 words).";
         break;
       case "ASLEEP":
         prompt =
-            "You are a co-pilot. The driver fell asleep! Scream in Arabic to WAKE UP NOW! Keep it very short and urgent.";
+            "The driver has fallen ASLEEP! This is a life-threatening emergency. "
+            "Scream in Arabic to WAKE UP NOW! Use the most alarming words possible. (Max 3 words). Example: 'اصحى! خطر!'";
         break;
       default:
         prompt = "Say Hello in Arabic";
@@ -63,18 +71,16 @@ class GeminiService {
 
   Future<String> chatWithDriver(String userMessage) async {
     String prompt =
-        "Act as a helpful car co-pilot. The driver is speaking to you in Arabic.\n"
+        "You are 'Yaqdah' (يقظة), a smart AI co-pilot for preventing drowsiness. "
+        "The driver is speaking to you in Arabic to stay awake. "
         "Driver said: '$userMessage'\n"
-        "Reply in helpful Arabic. Keep the response concise so the driver is not distracted.";
+        "Reply in friendly, engaging Arabic to keep the conversation going and keep him awake. "
+        "Keep your answers concise (max 2 sentences).";
 
     return _sendPrompt(prompt);
   }
 
   Future<String> _sendPrompt(String prompt) async {
-    if (_apiKey.isEmpty) {
-      return "خطأ: مفتاح API مفقود";
-    }
-
     try {
       final content = [Content.text(prompt)];
       final response = await _model.generateContent(content);
@@ -83,16 +89,16 @@ class GeminiService {
       debugPrint("❌ GEMINI ERROR DETAILED: $e");
 
       if (e.toString().contains("404") || e.toString().contains("not found")) {
-        return "خطأ: الموديل غير موجود (404).";
+        return "خطأ: الموديل غير موجود (404). تأكد من المفتاح.";
       }
-      if (e.toString().contains("403") || e.toString().contains("API key")) {
+      if (e.toString().contains("403")) {
         return "خطأ: مفتاح API غير صالح (403)";
       }
-      if (e.toString().contains("User location")) {
-        return "خطأ: الخدمة غير متوفرة في منطقتك (VPN قد يساعد)";
+      if (e.toString().contains("User location is not supported")) {
+        return "خطأ: الخدمة غير متوفرة في منطقتك";
       }
 
-      return "خطأ في الاتصال";
+      return "خطأ في الاتصال: $e";
     }
   }
 }

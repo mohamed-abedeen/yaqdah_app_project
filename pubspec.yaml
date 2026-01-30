@@ -64,6 +64,8 @@ dependencies:
   shared_preferences: ^2.3.2
   
   water_drop_nav_bar: ^2.1.1
+  provider: ^6.1.5+1
+  introduction_screen: ^4.0.0
 
 dev_dependencies:
   flutter_test:
@@ -86,6 +88,7 @@ flutter:
     - images/yaqdah-13.png  
     - images/yaqdah-05.png  
     - images/logo.png
+    - assets/sounds/
     
 
 

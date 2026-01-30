@@ -7,60 +7,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
-import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../services/database_service.dart';
-import '../services/location_sms_service.dart';
 import '../services/theme_service.dart';
+import '../providers/monitoring_provider.dart';
+import '../providers/location_provider.dart';
 
 const String _mapboxAccessToken =
     'pk.eyJ1IjoibW9ob3oiLCJhIjoiY21rNng0eTBhMG1tejNmc2hkZjg2djg5cSJ9.EhZ_hhGrpAGJRb1j-O5eIw';
 
 class DashboardUI extends StatefulWidget {
-  final Function(LatLng) onLocationUpdate;
-  final bool isMonitoring;
-  final String status;
-  final double drowsinessLevel;
-  final String aiMessage;
-  final VoidCallback onToggleMonitoring;
-  final VoidCallback onMicToggle;
-  final bool isListening;
   final VoidCallback onSwitchCamera;
   final String currentCameraName;
-  final String emergencyContact; // ✅ Added Parameter
 
   const DashboardUI({
     super.key,
-    required this.onLocationUpdate,
-    required this.isMonitoring,
-    required this.status,
-    required this.drowsinessLevel,
-    required this.aiMessage,
-    required this.onToggleMonitoring,
-    required this.onMicToggle,
-    required this.isListening,
     required this.onSwitchCamera,
     required this.currentCameraName,
-    required this.emergencyContact, // ✅ Added Parameter
   });
 
   @override
   State<DashboardUI> createState() => DashboardUIState();
 }
 
-// ✅ PUBLIC STATE CLASS (Required for GlobalKey in HomeScreen)
 class DashboardUIState extends State<DashboardUI>
     with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
-  final LocationSmsService _smsService = LocationSmsService();
   final Distance _distanceCalculator = const Distance();
   final TextEditingController _searchController = TextEditingController();
-
-  LatLng _currentLocation = const LatLng(32.8872, 13.1913);
-  double _currentHeading = 0.0;
-  double _currentSpeed = 0.0;
 
   LatLng? _destination;
   List<LatLng> _routePoints = [];
@@ -73,7 +49,6 @@ class DashboardUIState extends State<DashboardUI>
   Timer? _tripTimer;
 
   bool _tripSessionActive = false;
-  StreamSubscription<Position>? _positionStreamSubscription;
 
   DateTime? _tripStartTime;
   double _totalDistanceTraveled = 0.0;
@@ -87,96 +62,108 @@ class DashboardUIState extends State<DashboardUI>
   List<String> _tripEvents = [];
   bool _hasDangerousEvents = false;
 
+  LatLng? _lastLocation;
+
+  // Double tap detection state
+  DateTime? _lastTapTime;
+
   @override
   void initState() {
     super.initState();
     _startTripTimer();
-    _startLiveLocationUpdates();
+
+    // Listen for Monitoring Status Changes to log events
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final monitor = Provider.of<MonitoringProvider>(context, listen: false);
+      monitor.addListener(_onMonitoringStateChange);
+
+      final loc = Provider.of<LocationProvider>(context, listen: false);
+      loc.addListener(_onLocationUpdate);
+    });
   }
 
+  void _onLocationUpdate() {
+    if (!mounted || !_tripSessionActive) return;
+    final locProvider = Provider.of<LocationProvider>(context, listen: false);
+    final newLoc = locProvider.currentLocation;
+    final speed = locProvider.currentSpeed;
+
+    _maxSpeed = math.max(_maxSpeed, speed);
+    if (speed > 0) {
+      _sumSpeed += speed;
+      _speedSamples++;
+    }
+
+    if (_lastLocation != null) {
+      double dist = _distanceCalculator.as(
+        LengthUnit.Meter,
+        _lastLocation!,
+        newLoc,
+      );
+      if (dist > 5) _totalDistanceTraveled += dist;
+    }
+    _lastLocation = newLoc;
+
+    // Update Display
+    if (_destination != null) {
+      double meters = _distanceCalculator.as(
+        LengthUnit.Meter,
+        newLoc,
+        _destination!,
+      );
+      setState(() {
+        _tripDistanceDisplay = (meters / 1000).toStringAsFixed(1);
+      });
+    } else {
+      setState(() {
+        _tripDistanceDisplay = (_totalDistanceTraveled / 1000).toStringAsFixed(
+          1,
+        );
+      });
+    }
+
+    if (_isAutoFollowing) _mapController.move(newLoc, 18.0);
+  }
+
+  void _onMonitoringStateChange() {
+    if (!mounted || !_tripSessionActive) return;
+    final monitor = Provider.of<MonitoringProvider>(context, listen: false);
+    final status = monitor.status;
+
+    // Logic from didUpdateWidget
+    // We need to compare with "previous" status but Providers don't give "previous".
+    // But since we log EVENTS, maybe just logging "Current status is X" is fine,
+    // but we don't want to log duplicates if it stays "DROWSY".
+    // I'll keep a local _lastStatus to compare.
+  }
+
+  String _lastStatus = "IDLE";
+
   @override
-  void didUpdateWidget(DashboardUI oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_tripSessionActive && widget.status != oldWidget.status) {
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Use this to track status changes if addListener is tricky with "previous" value
+    final monitor = Provider.of<MonitoringProvider>(context);
+    if (_tripSessionActive && monitor.status != _lastStatus) {
       final now = DateTime.now().toIso8601String();
-      if (widget.status == "DROWSY") {
+      if (monitor.status == "DROWSY") {
         _tripEvents.add("$now: ⚠️ Drowsiness Detected");
-      } else if (widget.status == "ASLEEP") {
+      } else if (monitor.status == "ASLEEP") {
         _tripEvents.add("$now: 🚨 Danger: Asleep");
         setState(() => _hasDangerousEvents = true);
-      } else if (widget.status == "DISTRACTED") {
+      } else if (monitor.status == "DISTRACTED") {
         _tripEvents.add("$now: ⚠️ Distraction Detected");
       }
+      _lastStatus = monitor.status;
     }
   }
 
   void _startTripTimer() {
     _tripTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (widget.isMonitoring && mounted) {
+      if (_tripSessionActive && mounted) {
         setState(() => _tripDurationSeconds++);
       }
     });
-  }
-
-  Future<void> _startLiveLocationUpdates() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-    await Permission.location.request();
-
-    LatLng? lastPos;
-
-    _positionStreamSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            distanceFilter: 0,
-          ),
-        ).listen((Position position) {
-          if (!mounted) return;
-          final newLatLong = LatLng(position.latitude, position.longitude);
-
-          double speedKmh = position.speed * 3.6;
-          if (speedKmh < 3.0) speedKmh = 0.0;
-
-          if (_tripSessionActive) {
-            _maxSpeed = math.max(_maxSpeed, speedKmh);
-            if (speedKmh > 0) {
-              _sumSpeed += speedKmh;
-              _speedSamples++;
-            }
-            if (lastPos != null) {
-              double dist = _distanceCalculator.as(
-                LengthUnit.Meter,
-                lastPos!,
-                newLatLong,
-              );
-              if (dist > 5) _totalDistanceTraveled += dist;
-            }
-          }
-          lastPos = newLatLong;
-
-          String newDistDisplay = _tripDistanceDisplay;
-          if (_destination != null) {
-            double meters = _distanceCalculator.as(
-              LengthUnit.Meter,
-              newLatLong,
-              _destination!,
-            );
-            newDistDisplay = (meters / 1000).toStringAsFixed(1);
-          } else {
-            newDistDisplay = (_totalDistanceTraveled / 1000).toStringAsFixed(1);
-          }
-
-          setState(() {
-            _currentLocation = newLatLong;
-            _tripDistanceDisplay = newDistDisplay;
-            _currentSpeed = speedKmh;
-            if (position.speed > 0.5) _currentHeading = position.heading;
-          });
-
-          widget.onLocationUpdate(newLatLong);
-          if (_isAutoFollowing) _mapController.move(newLatLong, 18.0);
-        });
   }
 
   String _formatTime(int totalSeconds) {
@@ -187,13 +174,20 @@ class DashboardUIState extends State<DashboardUI>
   }
 
   void _toggleTrip() {
-    if (widget.isMonitoring)
+    final monitor = Provider.of<MonitoringProvider>(context, listen: false);
+    if (monitor.isMonitoring)
       _endTrip();
     else
       _startTrip();
   }
 
   void _startTrip() {
+    final monitor = Provider.of<MonitoringProvider>(context, listen: false);
+    final location = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    ); // ✅ Get LocationProvider
+
     setState(() {
       _tripSessionActive = true;
       _tripEvents = [];
@@ -205,13 +199,22 @@ class DashboardUIState extends State<DashboardUI>
       _speedSamples = 0;
       _totalDistanceTraveled = 0.0;
       _tripDurationSeconds = 0;
+      _lastStatus = monitor.status;
     });
-    widget.onToggleMonitoring();
+
+    monitor.toggleMonitoring();
+    location.startRecording(); // ✅ Start Recording Path
   }
 
   void _endTrip() async {
+    final monitor = Provider.of<MonitoringProvider>(context, listen: false);
+    final location = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    ); // ✅ Get LocationProvider
+
     _tripEvents.add("${DateTime.now().toIso8601String()}: 🛑 Trip Ended");
-    String finalStatus = _hasDangerousEvents || widget.drowsinessLevel > 50
+    String finalStatus = _hasDangerousEvents || monitor.drowsinessLevel > 50
         ? "Drowsy"
         : "Safe";
     if (_tripEvents.any((e) => e.contains("Manual SOS")))
@@ -219,6 +222,9 @@ class DashboardUIState extends State<DashboardUI>
 
     final endTime = DateTime.now();
     final avgSpeed = _speedSamples > 0 ? (_sumSpeed / _speedSamples) : 0.0;
+
+    // ✅ Get Recorded Path
+    final routePath = location.stopRecording();
 
     await DatabaseService.instance.saveTrip(
       duration: _formatTime(_tripDurationSeconds),
@@ -229,9 +235,10 @@ class DashboardUIState extends State<DashboardUI>
       endTime: DateFormat('hh:mm a').format(endTime),
       avgSpeed: "${avgSpeed.toStringAsFixed(1)} km/h",
       maxSpeed: "${_maxSpeed.toStringAsFixed(1)} km/h",
+      routePath: routePath, // ✅ Save Path
     );
 
-    widget.onToggleMonitoring();
+    monitor.toggleMonitoring();
     setState(() {
       _tripSessionActive = false;
       _tripDurationSeconds = 0;
@@ -241,13 +248,17 @@ class DashboardUIState extends State<DashboardUI>
   }
 
   void _triggerSOSManual() {
+    final monitor = Provider.of<MonitoringProvider>(context, listen: false);
     setState(() => _hasDangerousEvents = true);
     _tripEvents.add("${DateTime.now().toIso8601String()}: 🆘 Manual SOS");
-    // ✅ Use the dynamic contact number from HomeScreen
-    _smsService.sendEmergencyAlert(targetNumber: widget.emergencyContact);
+    monitor.triggerSOS();
   }
 
   void startNavigation(LatLng dest) async {
+    final loc = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    ).currentLocation;
     setState(() {
       _destination = dest;
       _isRouteLoading = true;
@@ -255,7 +266,7 @@ class DashboardUIState extends State<DashboardUI>
     });
 
     final url = Uri.parse(
-      'https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${_currentLocation.longitude},${_currentLocation.latitude};${dest.longitude},${dest.latitude}?geometries=geojson&overview=full&annotations=duration&access_token=$_mapboxAccessToken',
+      'https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${loc.longitude},${loc.latitude};${dest.longitude},${dest.latitude}?geometries=geojson&overview=full&annotations=duration&access_token=$_mapboxAccessToken',
     );
 
     try {
@@ -295,23 +306,20 @@ class DashboardUIState extends State<DashboardUI>
     });
   }
 
-  // Uses OpenStreetMap (Nominatim) for searching locations
   void _performSearch(String query, StateSetter setModalState) async {
     if (query.isEmpty) return;
     setModalState(() => _isSearching = true);
 
-    // Using Nominatim API
     final url = Uri.parse(
       "https://nominatim.openstreetmap.org/search"
       "?q=$query"
       "&format=json"
       "&limit=5"
-      "&countrycodes=ly" // Restricted to Libya
+      "&countrycodes=ly"
       "&addressdetails=1",
     );
 
     try {
-      // User-Agent is required by OSM policy
       final response = await http.get(
         url,
         headers: {'User-Agent': 'com.example.yaqdah_app_student_project'},
@@ -380,8 +388,6 @@ class DashboardUIState extends State<DashboardUI>
                       itemCount: _searchResults.length,
                       itemBuilder: (context, index) {
                         final result = _searchResults[index];
-
-                        // ✅ Parse Nominatim Data (Different from Mapbox)
                         final name = result['display_name'].toString().split(
                           ',',
                         )[0];
@@ -396,7 +402,6 @@ class DashboardUIState extends State<DashboardUI>
                             style: TextStyle(color: Colors.grey, fontSize: 12),
                           ),
                           onTap: () {
-                            // ✅ Parse lat/lon strings to doubles
                             double lat = double.parse(result['lat']);
                             double lon = double.parse(result['lon']);
                             Navigator.pop(context);
@@ -415,13 +420,13 @@ class DashboardUIState extends State<DashboardUI>
     );
   }
 
-  Map<String, dynamic> _getStatusConfig() {
+  Map<String, dynamic> _getStatusConfig(MonitoringProvider monitor) {
     final red = ThemeService.red;
     final orange = ThemeService.orange;
     final green = ThemeService.Green;
     final blue = ThemeService.blue;
 
-    if (!widget.isMonitoring) {
+    if (!monitor.isMonitoring) {
       return {
         'color': blue,
         'bgColor': blue.withOpacity(0.2),
@@ -430,21 +435,21 @@ class DashboardUIState extends State<DashboardUI>
       };
     }
 
-    if (widget.status == "ASLEEP") {
+    if (monitor.status == "ASLEEP") {
       return {
         'color': red,
         'bgColor': red.withOpacity(0.2),
         'borderColor': red.withOpacity(0.5),
         'text': "خطر - توقف فوراً!",
       };
-    } else if (widget.status == "DISTRACTED") {
+    } else if (monitor.status == "DISTRACTED") {
       return {
         'color': orange,
         'bgColor': orange.withOpacity(0.2),
         'borderColor': orange.withOpacity(0.5),
         'text': "تشتت الانتباه - ركز!",
       };
-    } else if (widget.status == "DROWSY") {
+    } else if (monitor.status == "DROWSY") {
       return {
         'color': orange,
         'bgColor': orange.withOpacity(0.2),
@@ -467,316 +472,345 @@ class DashboardUIState extends State<DashboardUI>
     final isDark = theme.brightness == Brightness.dark;
     final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
-    final statusConfig = _getStatusConfig();
+    return Consumer2<MonitoringProvider, LocationProvider>(
+      builder: (context, monitor, locProvider, child) {
+        final statusConfig = _getStatusConfig(monitor);
+        final currentLocation = locProvider.currentLocation;
+        final currentSpeed = locProvider.currentSpeed;
+        final currentHeading = locProvider.currentHeading;
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "يقظة",
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      "نظام كشف النعاس للسائقين",
-                      style: TextStyle(color: subColor, fontSize: 12),
-                    ),
-                  ],
-                ),
-                Container(
-                  width: 118,
-                  height: 40,
-                  child: Image.asset(
-                    'images/yaqdah-13.png',
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ],
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 12.0,
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 220,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Stack(
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    FlutterMap(
-                      mapController: _mapController,
-                      options: MapOptions(
-                        initialCenter: _currentLocation,
-                        initialZoom: 16.0,
-                        onPositionChanged: (p, g) {
-                          if (g) setState(() => _isAutoFollowing = false);
-                        },
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TileLayer(
-                          urlTemplate:
-                              'https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
-                          userAgentPackageName: 'com.example.yaqdah_app',
-                        ),
-                        if (_routePoints.isNotEmpty)
-                          PolylineLayer(
-                            polylines: [
-                              Polyline(
-                                points: _routePoints,
-                                strokeWidth: 4.0,
-                                color: Colors.blueAccent,
-                              ),
-                            ],
+                        Text(
+                          "يقظة",
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
                           ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: _currentLocation,
-                              width: 40,
-                              height: 40,
-                              child: Transform.rotate(
-                                angle: _currentHeading * (math.pi / 180),
-                                child: const Icon(
-                                  Icons.navigation,
-                                  color: Colors.blueAccent,
-                                  size: 32,
-                                ),
-                              ),
-                            ),
-                            if (_destination != null)
-                              Marker(
-                                point: _destination!,
-                                width: 35,
-                                height: 35,
-                                child: const Icon(
-                                  Icons.location_on,
-                                  color: Colors.red,
-                                  size: 30,
-                                ),
-                              ),
-                          ],
+                        ),
+                        Text(
+                          "نظام كشف النعاس للسائقين",
+                          style: TextStyle(color: subColor, fontSize: 12),
                         ),
                       ],
                     ),
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: _smallMapButton(
-                        icon: Icons.search,
-                        onTap: _openSearchSheet,
+                    Container(
+                      width: 118,
+                      height: 40,
+                      child: Image.asset(
+                        'images/yaqdah-13.png',
+                        fit: BoxFit.contain,
                       ),
                     ),
-                    Positioned(
-                      bottom: 10,
-                      right: 10,
-                      child: _smallMapButton(
-                        icon: Icons.my_location,
-                        onTap: () {
-                          setState(() => _isAutoFollowing = true);
-                          _mapController.move(_currentLocation, 18.0);
-                        },
-                        isActive: _isAutoFollowing,
-                      ),
-                    ),
-                    if (_destination != null)
-                      Positioned(
-                        top: 10,
-                        right: 10,
-                        child: _smallMapButton(
-                          icon: Icons.close,
-                          onTap: _clearNavigation,
-                          isDanger: true,
-                        ),
-                      ),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: statusConfig['bgColor'],
-                    border: Border.all(
-                      color: statusConfig['borderColor'],
-                      width: 1.5,
-                    ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 220,
+                  child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: statusConfig['bgColor'],
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: statusConfig['borderColor'],
-                          ),
-                        ),
-                        child: Icon(
-                          Icons.remove_red_eye,
-                          color: statusConfig['color'],
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "حالة السائق",
-                              style: TextStyle(color: subColor, fontSize: 11),
+                    child: Stack(
+                      children: [
+                        FlutterMap(
+                          mapController: _mapController,
+                          options: MapOptions(
+                            initialCenter: currentLocation,
+                            initialZoom: 16.0,
+                            interactionOptions: const InteractionOptions(
+                              flags:
+                                  InteractiveFlag.all &
+                                  ~InteractiveFlag.doubleTapZoom,
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              statusConfig['text'],
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: statusConfig['color'],
+                            onPositionChanged: (p, g) {
+                              if (g) setState(() => _isAutoFollowing = false);
+                            },
+                            onTap: (tapPosition, point) {
+                              final now = DateTime.now();
+                              if (_lastTapTime != null &&
+                                  now.difference(_lastTapTime!) <
+                                      const Duration(milliseconds: 300)) {
+                                startNavigation(point);
+                                _lastTapTime = null;
+                              } else {
+                                _lastTapTime = now;
+                              }
+                            },
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate:
+                                  'https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
+                              userAgentPackageName: 'com.example.yaqdah_app',
+                            ),
+                            if (_routePoints.isNotEmpty)
+                              PolylineLayer(
+                                polylines: [
+                                  Polyline(
+                                    points: _routePoints,
+                                    strokeWidth: 4.0,
+                                    color: Colors.blueAccent,
+                                  ),
+                                ],
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            MarkerLayer(
+                              markers: [
+                                Marker(
+                                  point: currentLocation,
+                                  width: 40,
+                                  height: 40,
+                                  child: Transform.rotate(
+                                    angle: currentHeading * (math.pi / 180),
+                                    child: const Icon(
+                                      Icons.navigation,
+                                      color: Colors.blueAccent,
+                                      size: 32,
+                                    ),
+                                  ),
+                                ),
+                                if (_destination != null)
+                                  Marker(
+                                    point: _destination!,
+                                    width: 35,
+                                    height: 35,
+                                    child: const Icon(
+                                      Icons.location_on,
+                                      color: Colors.red,
+                                      size: 30,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ],
                         ),
-                      ),
-                      Column(
-                        children: [
-                          Text(
-                            !widget.isMonitoring
-                                ? "--"
-                                : "${widget.drowsinessLevel.toInt()}%",
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: statusConfig['color'],
+                        Positioned(
+                          top: 10,
+                          left: 10,
+                          child: _smallMapButton(
+                            icon: Icons.search,
+                            onTap: _openSearchSheet,
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 10,
+                          right: 10,
+                          child: _smallMapButton(
+                            icon: Icons.my_location,
+                            onTap: () {
+                              setState(() => _isAutoFollowing = true);
+                              _mapController.move(currentLocation, 18.0);
+                            },
+                            isActive: _isAutoFollowing,
+                          ),
+                        ),
+                        if (_destination != null)
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: _smallMapButton(
+                              icon: Icons.close,
+                              onTap: _clearNavigation,
+                              isDanger: true,
                             ),
                           ),
-                          Text(
-                            "مستوى النعاس",
-                            style: TextStyle(fontSize: 10, color: subColor),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: statusConfig['bgColor'],
+                        border: Border.all(
+                          color: statusConfig['borderColor'],
+                          width: 1.5,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: statusConfig['bgColor'],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: statusConfig['borderColor'],
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.remove_red_eye,
+                              color: statusConfig['color'],
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "حالة السائق",
+                                  style: TextStyle(
+                                    color: subColor,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  statusConfig['text'],
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: statusConfig['color'],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            children: [
+                              Text(
+                                !monitor.isMonitoring
+                                    ? "--"
+                                    : "${monitor.drowsinessLevel.toInt()}%",
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: statusConfig['color'],
+                                ),
+                              ),
+                              Text(
+                                "مستوى النعاس",
+                                style: TextStyle(fontSize: 10, color: subColor),
+                              ),
+                            ],
                           ),
                         ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  height: 80,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildGlassButton(
+                          label: "طوارئ",
+                          icon: Icons.phone,
+                          color: ThemeService.red,
+                          onTap: _triggerSOSManual,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildGlassButton(
+                          label: monitor.isMonitoring ? "إيقاف" : "بدء",
+                          icon: monitor.isMonitoring
+                              ? Icons.stop_rounded
+                              : Icons.play_arrow_rounded,
+                          color: monitor.isMonitoring
+                              ? ThemeService.orange
+                              : theme.primaryColor,
+                          onTap: _toggleTrip,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildGlassButton(
+                          label: "كاميرا",
+                          subLabel: widget.currentCameraName,
+                          icon: Icons.cameraswitch,
+                          color: ThemeService.purple,
+                          onTap: widget.onSwitchCamera,
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ),
 
-            const SizedBox(height: 12),
+                const SizedBox(height: 12),
 
-            SizedBox(
-              height: 80,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _buildGlassButton(
-                      label: "طوارئ",
-                      icon: Icons.phone,
-                      color: ThemeService.red,
-                      onTap: _triggerSOSManual,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildGlassButton(
-                      label: widget.isMonitoring ? "إيقاف" : "بدء",
-                      icon: widget.isMonitoring
-                          ? Icons.stop_rounded
-                          : Icons.play_arrow_rounded,
-                      color: widget.isMonitoring
-                          ? ThemeService.orange
-                          : theme.primaryColor,
-                      onTap: _toggleTrip,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildGlassButton(
-                      label: "كاميرا",
-                      subLabel: widget.currentCameraName,
-                      icon: Icons.cameraswitch,
-                      color: ThemeService.purple,
-                      onTap: widget.onSwitchCamera,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            Column(
-              children: [
-                Row(
+                Column(
                   children: [
-                    Expanded(
-                      child: _buildDarkStatCard(
-                        Icons.access_time,
-                        "المدة",
-                        _formatTime(_tripDurationSeconds),
-                        theme.primaryColor,
-                        unit: "",
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDarkStatCard(
+                            Icons.access_time,
+                            "المدة",
+                            _formatTime(_tripDurationSeconds),
+                            theme.primaryColor,
+                            unit: "",
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _buildDarkStatCard(
+                            Icons.location_on,
+                            "المسافة",
+                            _tripDistanceDisplay,
+                            ThemeService.blue,
+                            unit: "كم",
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildDarkStatCard(
-                        Icons.location_on,
-                        "المسافة",
-                        _tripDistanceDisplay,
-                        ThemeService.blue,
-                        unit: "كم",
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildDarkStatCard(
-                        Icons.speed,
-                        "السرعة",
-                        "${_currentSpeed.toInt()}",
-                        ThemeService.purple,
-                        unit: "كم/س",
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildDarkStatCard(
-                        Icons.navigation,
-                        "الوصول",
-                        _etaDisplay,
-                        ThemeService.orange,
-                        unit: "",
-                      ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildDarkStatCard(
+                            Icons.speed,
+                            "السرعة",
+                            "${currentSpeed.toInt()}",
+                            ThemeService.purple,
+                            unit: "كم/س",
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _buildDarkStatCard(
+                            Icons.navigation,
+                            "الوصول",
+                            _etaDisplay,
+                            ThemeService.orange,
+                            unit: "",
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -931,7 +965,6 @@ class DashboardUIState extends State<DashboardUI>
   void dispose() {
     _tripTimer?.cancel();
     _searchController.dispose();
-    _positionStreamSubscription?.cancel();
     super.dispose();
   }
 }

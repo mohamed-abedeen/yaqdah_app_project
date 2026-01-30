@@ -1,9 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'services/theme_service.dart';
 import 'services/database_service.dart';
+import 'providers/auth_provider.dart';
+import 'providers/settings_provider.dart';
+import 'providers/monitoring_provider.dart';
+import 'providers/location_provider.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -23,7 +28,22 @@ Future<void> main() async {
   // ✅ DEBUG: Print all registered users to the console on startup
   await DatabaseService.instance.debugPrintAllUsers();
 
-  runApp(const YaqdahApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()..initApp()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProxyProvider<SettingsProvider, MonitoringProvider>(
+          create: (_) => MonitoringProvider(),
+          update: (_, settings, monitor) => monitor!..updateSettings(settings),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => LocationProvider()..startLocationUpdates(),
+        ),
+      ],
+      child: const YaqdahApp(),
+    ),
+  );
 }
 
 class YaqdahApp extends StatefulWidget {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/edit_profile_modal.dart';
 import '../services/theme_service.dart';
 import 'test_mode_screen.dart';
@@ -7,14 +8,13 @@ import 'test_mode_screen.dart';
 class SettingsScreen extends StatefulWidget {
   final Map<String, dynamic> currentUser;
   final VoidCallback onLogout;
-  // ✅ NEW: Receive update function from Home
   final Function(Map<String, dynamic>) onUpdateUser;
 
   const SettingsScreen({
     super.key,
     required this.currentUser,
     required this.onLogout,
-    required this.onUpdateUser, // ✅ Required
+    required this.onUpdateUser,
   });
 
   @override
@@ -22,33 +22,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _notifications = true;
-  bool _sound = true;
-  bool _vibration = true;
-  bool _autoEmergency = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSettings();
-  }
-
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _notifications = prefs.getBool('notifications_enabled') ?? true;
-        _sound = prefs.getBool('sound_enabled') ?? true;
-        _vibration = prefs.getBool('vibration_enabled') ?? true;
-        _autoEmergency = prefs.getBool('auto_emergency') ?? false;
-      });
-    }
-  }
-
-  Future<void> _updateSetting(String key, bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
-  }
+  // Local state removed - using SettingsProvider
 
   void _openEditProfile() {
     showModalBottomSheet(
@@ -58,16 +32,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => EditProfileModal(
         user: widget.currentUser,
         onClose: () => Navigator.pop(context),
-        // ✅ NEW: When modal saves, we create the new user object and pass it up
         onSave: (newName, newEmergency) {
-          // Create a new map to ensure state update triggers
           Map<String, dynamic> updatedUser = Map<String, dynamic>.from(
             widget.currentUser,
           );
           updatedUser['fullName'] = newName;
           updatedUser['emergencyContact'] = newEmergency;
 
-          widget.onUpdateUser(updatedUser); // Update Parent (Home)
+          widget.onUpdateUser(updatedUser);
         },
       ),
     );
@@ -82,55 +54,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final purple = ThemeService.purple;
     final blue = ThemeService.blue;
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "الإعدادات",
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Text(
-                "إدارة حسابك والتطبيق",
-                style: TextStyle(color: Colors.grey, fontSize: 14),
-              ),
-              const SizedBox(height: 20),
+    return Consumer<SettingsProvider>(
+      builder: (context, settings, child) {
+        return Scaffold(
+          backgroundColor: theme.scaffoldBackgroundColor,
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "الإعدادات",
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Text(
+                    "إدارة حسابك والتطبيق",
+                    style: TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+                  const SizedBox(height: 20),
 
-              // Profile Card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.white.withOpacity(0.1), Colors.transparent],
-                  ),
-                  border: Border.all(
-                    color: const Color.fromARGB(
-                      31,
-                      112,
-                      112,
-                      112,
-                    ).withOpacity(0.3),
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Stack(
+                  // Profile Card
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white.withOpacity(0.1),
+                          Colors.transparent,
+                        ],
+                      ),
+                      border: Border.all(
+                        color: const Color.fromARGB(
+                          31,
+                          112,
+                          112,
+                          112,
+                        ).withOpacity(0.3),
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
                       children: [
                         Container(
                           width: 60,
                           height: 60,
                           decoration: BoxDecoration(
                             color: const Color.fromARGB(255, 91, 89, 92),
-
                             borderRadius: BorderRadius.circular(80),
                           ),
                           child: const Icon(
@@ -139,214 +113,213 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: Color.fromARGB(255, 0, 0, 0),
                           ),
                         ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.currentUser['fullName'] ?? "User",
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                widget.currentUser['email'] ??
+                                    "email@example.com",
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              GestureDetector(
+                                onTap: _openEditProfile,
+                                child: Text(
+                                  "تعديل الملف الشخصي",
+                                  style: TextStyle(
+                                    color: purple,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                  const SizedBox(height: 24),
+
+                  _sectionHeader("إعدادات الطوارئ"),
+                  _buildSwitchCard(
+                    "اتصال طوارئ تلقائي",
+                    "عند النعاس الشديد",
+                    Icons.warning_amber,
+                    red,
+                    settings.autoEmergency,
+                    (v) => settings.setAutoEmergency(v),
+                    theme,
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _sectionHeader("الذكاء الاصطناعي"),
+                  _buildSwitchCard(
+                    "مساعد الذكاء الاصطناعي",
+                    "نصائح صوتية تلقائية عند الخطر",
+                    Icons.smart_toy,
+                    const Color(0xFF009688), // Teal
+                    settings.aiAssistance,
+                    (v) => settings.setAiAssistance(v),
+                    theme,
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _sectionHeader("الإشعارات"),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: theme.cardColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildSwitchItem(
+                          "تفعيل الإشعارات",
+                          "تنبيهات النعاس والتحذيرات",
+                          Icons.notifications,
+                          green,
+                          settings.notifications,
+                          (v) => settings.setNotifications(v),
+                          theme,
+                        ),
+                        if (settings.notifications) ...[
+                          Divider(color: theme.dividerColor, height: 1),
+                          _buildSwitchItem(
+                            "الصوت",
+                            "",
+                            Icons.volume_up,
+                            blue,
+                            settings.sound,
+                            (v) => settings.setSound(v),
+                            theme,
+                          ),
+                          _buildSwitchItem(
+                            "الاهتزاز",
+                            "",
+                            Icons.vibration,
+                            purple,
+                            settings.vibration,
+                            (v) => settings.setVibration(v),
+                            theme,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _sectionHeader("إعدادات التطبيق"),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: ThemeService.instance.isDarkMode,
+                    builder: (context, isDark, child) {
+                      return _buildSwitchCard(
+                        "المظهر الداكن",
+                        "تغيير مظهر التطبيق",
+                        Icons.dark_mode,
+                        Colors.yellow,
+                        isDark,
+                        (v) => ThemeService.instance.toggleTheme(),
+                        theme,
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TestModeScreen(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: theme.cardColor,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: theme.dividerColor),
+                      ),
+                      child: Row(
                         children: [
-                          Text(
-                            widget.currentUser['fullName'] ?? "User",
-                            style: TextStyle(
-                              color: textColor,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: ThemeService.blue.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.bug_report,
+                              color: ThemeService.blue,
+                              size: 20,
                             ),
                           ),
-                          Text(
-                            widget.currentUser['email'] ?? "email@example.com",
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "اختبار النظام (Test Lab)",
+                                  style: TextStyle(
+                                    color: theme.textTheme.bodyMedium!.color,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Text(
+                                  "مشاهدة بيانات المودل مباشرة",
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          GestureDetector(
-                            onTap: _openEditProfile,
-                            child: Text(
-                              "تعديل الملف الشخصي",
-                              style: TextStyle(
-                                color: purple,
-                                // decoration: TextDecoration.underline,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 14,
+                            color: Colors.grey,
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              _sectionHeader("إعدادات الطوارئ"),
-              _buildSwitchCard(
-                "اتصال طوارئ تلقائي",
-                "عند النعاس الشديد",
-                Icons.warning_amber,
-                red,
-                _autoEmergency,
-                (v) {
-                  setState(() => _autoEmergency = v);
-                  _updateSetting('auto_emergency', v);
-                },
-                theme,
-              ),
-
-              const SizedBox(height: 24),
-
-              _sectionHeader("الإشعارات"),
-              Container(
-                decoration: BoxDecoration(
-                  color: theme.cardColor,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: theme.dividerColor),
-                ),
-                child: Column(
-                  children: [
-                    _buildSwitchItem(
-                      "تفعيل الإشعارات",
-                      "تنبيهات النعاس والتحذيرات",
-                      Icons.notifications,
-                      green,
-                      _notifications,
-                      (v) {
-                        setState(() => _notifications = v);
-                        _updateSetting('notifications_enabled', v);
-                      },
-                      theme,
-                    ),
-                    if (_notifications) ...[
-                      Divider(color: theme.dividerColor, height: 1),
-                      _buildSwitchItem(
-                        "الصوت",
-                        "",
-                        Icons.volume_up,
-                        blue,
-                        _sound,
-                        (v) {
-                          setState(() => _sound = v);
-                          _updateSetting('sound_enabled', v);
-                        },
-                        theme,
-                      ),
-                      _buildSwitchItem(
-                        "الاهتزاز",
-                        "",
-                        Icons.vibration,
-                        purple,
-                        _vibration,
-                        (v) {
-                          setState(() => _vibration = v);
-                          _updateSetting('vibration_enabled', v);
-                        },
-                        theme,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              _sectionHeader("إعدادات التطبيق"),
-              ValueListenableBuilder<bool>(
-                valueListenable: ThemeService.instance.isDarkMode,
-                builder: (context, isDark, child) {
-                  return _buildSwitchCard(
-                    "المظهر الداكن",
-                    "تغيير مظهر التطبيق",
-                    Icons.dark_mode,
-                    Colors
-                        .yellow, // Using Yellow for the icon in Dark Mode context
-                    isDark,
-                    (v) => ThemeService.instance.toggleTheme(),
-                    theme,
-                  );
-                },
-              ),
-
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const TestModeScreen(),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.cardColor,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: theme.dividerColor),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: ThemeService.blue.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.bug_report,
-                          color: ThemeService.blue,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "اختبار النظام (Test Lab)",
-                              style: TextStyle(
-                                color: theme.textTheme.bodyMedium!.color,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const Text(
-                              "مشاهدة بيانات المودل مباشرة",
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(
-                        Icons.arrow_forward_ios,
-                        size: 14,
-                        color: Colors.grey,
-                      ),
-                    ],
+
+                  const SizedBox(height: 24),
+
+                  _buildActionCard(
+                    "تسجيل الخروج",
+                    Icons.logout,
+                    red,
+                    widget.onLogout,
                   ),
-                ),
+
+                  const SizedBox(height: 40),
+                ],
               ),
-
-              const SizedBox(height: 24),
-
-              _sectionHeader("منطقة الخطر"),
-              _buildActionCard(
-                "تسجيل الخروج",
-                Icons.logout,
-                red,
-                widget.onLogout,
-              ),
-
-              const SizedBox(height: 40),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -373,11 +346,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Function(bool) onChanged,
     ThemeData theme,
   ) {
-    // ✅ Logic: Yellow for Dark Mode, Green for Light Mode
     final isDark = theme.brightness == Brightness.dark;
     final activeSwitchColor = isDark
-        ? const Color(0xFFFFC107) // Yellow/Gold
-        : const Color.fromRGBO(52, 19, 163, 1); // Green
+        ? const Color(0xFFFFC107)
+        : const Color.fromRGBO(52, 19, 163, 1);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -419,7 +391,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            // ✅ Applied Dynamic Color
             activeColor: activeSwitchColor,
             activeTrackColor: activeSwitchColor.withOpacity(0.3),
             inactiveThumbColor: Colors.white,
@@ -439,11 +410,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Function(bool) onChanged,
     ThemeData theme,
   ) {
-    // ✅ Logic: Yellow for Dark Mode, Green for Light Mode
     final isDark = theme.brightness == Brightness.dark;
     final activeSwitchColor = isDark
-        ? const Color(0xFFFFC107) // Yellow/Gold
-        : const Color.fromARGB(255, 86, 19, 163); // Green
+        ? const Color(0xFFFFC107)
+        : const Color.fromARGB(255, 86, 19, 163);
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -480,7 +450,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            // ✅ Applied Dynamic Color
             activeColor: activeSwitchColor,
             activeTrackColor: activeSwitchColor.withOpacity(0.3),
           ),

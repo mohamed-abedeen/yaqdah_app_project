@@ -3,112 +3,51 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'dart:ui';
+import '../providers/auth_provider.dart';
+import '../providers/monitoring_provider.dart';
+import '../providers/location_provider.dart';
 import 'rest_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
 import 'login_screen.dart';
 import '../widgets/camera_feed.dart';
 import '../widgets/dashboard_ui.dart';
-import '../services/database_service.dart';
-import '../services/audio_service.dart';
-import '../services/gemini_service.dart';
-import '../services/location_sms_service.dart';
-import '../services/theme_service.dart';
 
-class HomeScreen extends StatefulWidget {
+import 'onboarding_screen.dart';
+
+class HomeScreen extends StatelessWidget {
   final List<CameraDescription> cameras;
   const HomeScreen({super.key, required this.cameras});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  bool _isAuthenticated = false;
-  bool _isLoading = true;
-  Map<String, dynamic> _currentUser = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _initApp();
-  }
-
-  Future<void> _initApp() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? email = prefs.getString('user_email');
-    if (email != null) {
-      final user = await DatabaseService.instance.getUserByEmail(email);
-      if (user != null) {
-        if (mounted) {
-          setState(() {
-            _currentUser = user;
-            _isAuthenticated = true;
-          });
-        }
-      }
-    }
-    if (mounted) setState(() => _isLoading = false);
-  }
-
-  void _login(Map<String, dynamic> user) async {
-    setState(() {
-      _isAuthenticated = true;
-      _currentUser = user;
-    });
-  }
-
-  // ✅ NEW: Update local state when user edits profile
-  void _updateUser(Map<String, dynamic> updatedUser) {
-    setState(() {
-      _currentUser = updatedUser;
-    });
-  }
-
-  void _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('user_email');
-    setState(() {
-      _isAuthenticated = false;
-      _currentUser = {};
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F172A),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    return Consumer<AuthProvider>(
+      builder: (context, auth, _) {
+        if (auth.isLoading) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0F172A),
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
 
-    return _isAuthenticated
-        ? MainLayout(
-            cameras: widget.cameras,
-            onLogout: _logout,
-            currentUser: _currentUser,
-            onUpdateUser: _updateUser, // ✅ Pass callback
-          )
-        : LoginScreen(onLogin: _login);
+        if (!auth.hasSeenOnboarding) {
+          return const OnboardingScreen();
+        }
+
+        return auth.isAuthenticated
+            ? MainLayout(cameras: cameras)
+            : LoginScreen(onLogin: auth.login);
+      },
+    );
   }
 }
 
 class MainLayout extends StatefulWidget {
   final List<CameraDescription> cameras;
-  final VoidCallback onLogout;
-  final Map<String, dynamic> currentUser;
-  final Function(Map<String, dynamic>) onUpdateUser; // ✅ Required
 
-  const MainLayout({
-    super.key,
-    required this.cameras,
-    required this.onLogout,
-    required this.currentUser,
-    required this.onUpdateUser, // ✅ Required
-  });
+  const MainLayout({super.key, required this.cameras});
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
@@ -119,35 +58,29 @@ class _MainLayoutState extends State<MainLayout> {
   final GlobalKey<CameraFeedState> _cameraKey = GlobalKey();
   final GlobalKey<DashboardUIState> _dashboardKey = GlobalKey();
 
-  LatLng? _currentLocation;
-  bool _isMonitoring = false;
-  String _status = "IDLE";
-  double _drowsinessLevel = 0.0;
-  String _aiMessage = "Press Start";
-  bool _isListening = false;
   String _currentCameraName = "Camera";
-
   bool _isCameraReady = false;
 
-  final AudioService _audio = AudioService();
-  final GeminiService _gemini = GeminiService();
-  final LocationSmsService _smsService = LocationSmsService();
-
-  DateTime _lastAiTrigger = DateTime.now().subtract(
-    const Duration(seconds: 10),
-  );
-  DateTime _lastBeepTrigger = DateTime.now().subtract(
-    const Duration(seconds: 10),
-  );
+  // Draggable Mic Position
+  double _micLeft = 20.0;
+  double _micTop = 500.0;
 
   @override
   void initState() {
     super.initState();
-    _audio.init();
     if (widget.cameras.isNotEmpty) _updateCameraName(0);
 
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted) setState(() => _isCameraReady = true);
+    });
+
+    // Set emergency contact in MonitoringProvider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authFn = Provider.of<AuthProvider>(context, listen: false);
+      final monitorFn = Provider.of<MonitoringProvider>(context, listen: false);
+      monitorFn.setEmergencyContact(
+        authFn.currentUser['emergencyContact'] ?? "",
+      );
     });
   }
 
@@ -165,85 +98,6 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
-  void _handleStatusChange(String newStatus) {
-    if (!mounted) return;
-
-    switch (newStatus) {
-      case "AWAKE":
-        if (_status == "ASLEEP" || _status == "DROWSY") {
-          _audio.stopAll();
-        }
-        break;
-      case "DISTRACTED":
-        _triggerGemini("DISTRACTED");
-        break;
-      case "DROWSY":
-        _triggerBeep();
-        _triggerGemini("DROWSY");
-        break;
-      case "ASLEEP":
-        _triggerSOS();
-        break;
-    }
-
-    setState(() {
-      _status = newStatus;
-      switch (newStatus) {
-        case "AWAKE":
-          _drowsinessLevel = 0;
-          break;
-        case "DISTRACTED":
-          _drowsinessLevel = 45;
-          break;
-        case "DROWSY":
-          _drowsinessLevel = 75;
-          break;
-        case "ASLEEP":
-          _drowsinessLevel = 100;
-          break;
-      }
-    });
-  }
-
-  void _triggerBeep() async {
-    if (DateTime.now().difference(_lastBeepTrigger).inSeconds < 3) return;
-    _lastBeepTrigger = DateTime.now();
-    await _audio.playBeep();
-  }
-
-  void _triggerGemini(String state) async {
-    if (DateTime.now().difference(_lastAiTrigger).inSeconds < 5) return;
-    _lastAiTrigger = DateTime.now();
-    String msg = await _gemini.getIntervention(state);
-    if (mounted) setState(() => _aiMessage = msg);
-    await _audio.speak(msg);
-  }
-
-  void _triggerSOS() async {
-    await _audio.playAlarm();
-    // ✅ Use the current user's emergency number
-    String contact = widget.currentUser['emergencyContact'] ?? "";
-    _smsService.sendEmergencyAlert(targetNumber: contact);
-  }
-
-  void _toggleListening() async {
-    if (_isListening) {
-      await _audio.stopListening();
-      if (mounted) setState(() => _isListening = false);
-    } else {
-      setState(() => _isListening = true);
-      await _audio.listen((text) async {
-        if (!mounted) return;
-        setState(() {
-          _isListening = false;
-          _aiMessage = "Analyzing...";
-        });
-        String reply = await _gemini.chatWithDriver(text);
-        await _audio.speak(reply);
-      });
-    }
-  }
-
   void _handlePlaceSelected(LatLng destination) {
     setState(() => _currentIndex = 0);
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -252,15 +106,12 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   @override
-  void dispose() {
-    _audio.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final monitoringProvider = Provider.of<MonitoringProvider>(context);
+    final authProvider = Provider.of<AuthProvider>(context);
+    final locationProvider = Provider.of<LocationProvider>(context);
 
     final List<Widget> screens = [
       Stack(
@@ -271,36 +122,37 @@ class _MainLayoutState extends State<MainLayout> {
               child: CameraFeed(
                 key: _cameraKey,
                 cameras: widget.cameras,
-                isMonitoring: _isMonitoring,
+                isMonitoring: monitoringProvider.isMonitoring,
                 showFeed: true,
-                onStatusChange: _handleStatusChange,
+                onStatusChange: monitoringProvider.handleStatusChange,
                 onCameraChanged: _updateCameraName,
               ),
             ),
           DashboardUI(
             key: _dashboardKey,
-            onLocationUpdate: (loc) => _currentLocation = loc,
-            isMonitoring: _isMonitoring,
-            status: _status,
-            drowsinessLevel: _drowsinessLevel,
-            aiMessage: _aiMessage,
-            isListening: _isListening,
-            onToggleMonitoring: () =>
-                setState(() => _isMonitoring = !_isMonitoring),
-            onMicToggle: _toggleListening,
-            currentCameraName: _currentCameraName,
             onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
-            // ✅ Pass current user's emergency number
-            emergencyContact: widget.currentUser['emergencyContact'] ?? "",
+            currentCameraName: _currentCameraName,
           ),
           Positioned(
-            bottom: 40,
-            right: 20,
-            child: FloatingActionButton(
-              heroTag: "mic",
-              backgroundColor: _isListening ? Colors.red : theme.primaryColor,
-              onPressed: _toggleListening,
-              child: Icon(_isListening ? Icons.mic_off : Icons.mic),
+            left: _micLeft,
+            top: _micTop,
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                setState(() {
+                  _micLeft += details.delta.dx;
+                  _micTop += details.delta.dy;
+                });
+              },
+              child: FloatingActionButton(
+                heroTag: "mic",
+                backgroundColor: monitoringProvider.isListening
+                    ? Colors.red
+                    : theme.primaryColor,
+                onPressed: monitoringProvider.toggleListening,
+                child: Icon(
+                  monitoringProvider.isListening ? Icons.mic_off : Icons.mic,
+                ),
+              ),
             ),
           ),
         ],
@@ -308,12 +160,12 @@ class _MainLayoutState extends State<MainLayout> {
       const ReportsScreen(),
       RestScreen(
         onPlaceSelected: _handlePlaceSelected,
-        currentLocation: _currentLocation ?? const LatLng(32.8872, 13.1913),
+        currentLocation: locationProvider.currentLocation,
       ),
       SettingsScreen(
-        onLogout: widget.onLogout,
-        currentUser: widget.currentUser,
-        onUpdateUser: widget.onUpdateUser, // ✅ Pass callback down
+        onLogout: authProvider.logout,
+        currentUser: authProvider.currentUser,
+        onUpdateUser: authProvider.updateUser,
       ),
     ];
 

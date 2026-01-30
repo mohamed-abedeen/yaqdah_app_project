@@ -4,7 +4,12 @@ import 'package:intl/intl.dart' as intl;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../services/theme_service.dart';
+
+const String _mapboxAccessToken =
+    'pk.eyJ1IjoibW9ob3oiLCJhIjoiY21rNng0eTBhMG1tejNmc2hkZjg2djg5cSJ9.EhZ_hhGrpAGJRb1j-O5eIw';
 
 class TripDetailModal extends StatelessWidget {
   final Map<String, dynamic> trip;
@@ -15,6 +20,18 @@ class TripDetailModal extends StatelessWidget {
     required this.trip,
     required this.onDelete,
   });
+
+  List<LatLng> _parseRoutePath() {
+    try {
+      if (trip['routePath'] == null) return [];
+      String raw = trip['routePath'].toString();
+      if (raw.isEmpty || raw == "[]") return [];
+      List<dynamic> list = json.decode(raw);
+      return list.map((item) => LatLng(item['lat'], item['lng'])).toList();
+    } catch (e) {
+      return [];
+    }
+  }
 
   int _countRealAlerts(dynamic alertsData) {
     try {
@@ -130,7 +147,6 @@ class TripDetailModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Dynamic Theme
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.textTheme.bodyMedium!.color;
@@ -149,6 +165,9 @@ class TripDetailModal extends StatelessWidget {
         !statusStr.contains('danger');
     final alerts = _parseAlerts();
 
+    // Parse Route Path
+    final routePoints = _parseRoutePath();
+
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.5,
@@ -156,7 +175,7 @@ class TripDetailModal extends StatelessWidget {
       builder: (_, controller) {
         return Container(
           decoration: BoxDecoration(
-            color: theme.scaffoldBackgroundColor, // ✅ Dynamic BG
+            color: theme.scaffoldBackgroundColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
           ),
           child: Column(
@@ -256,6 +275,68 @@ class TripDetailModal extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 24),
+
+                    // ✅ ROUTE MAP
+                    if (routePoints.isNotEmpty) ...[
+                      Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: FlutterMap(
+                            options: MapOptions(
+                              initialCenter: routePoints.isNotEmpty
+                                  ? routePoints.first
+                                  : const LatLng(0, 0),
+                              initialZoom: 13.0,
+                              // Auto fit camera
+                              onMapReady: () {
+                                // Can't easily auto-fit in stateless widget without Controller ref
+                                // But initialCenter is okay.
+                              },
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
+                                userAgentPackageName: 'com.example.yaqdah_app',
+                              ),
+                              PolylineLayer(
+                                polylines: [
+                                  Polyline(
+                                    points: routePoints,
+                                    strokeWidth: 4.0,
+                                    color: Colors.blueAccent,
+                                  ),
+                                ],
+                              ),
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    point: routePoints.first,
+                                    child: const Icon(
+                                      Icons.location_on,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                  Marker(
+                                    point: routePoints.last,
+                                    child: const Icon(
+                                      Icons.flag,
+                                      color: Colors.red,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
 
                     GridView.count(
                       crossAxisCount: 2,

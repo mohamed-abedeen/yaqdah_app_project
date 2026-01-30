@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
-import '../services/PlacesService.dart';
+import '../services/places_service.dart';
 import '../services/theme_service.dart';
 
 class RestScreen extends StatefulWidget {
@@ -65,10 +65,16 @@ class _RestScreenState extends State<RestScreen> {
     if (_isLoading) return;
     if (mounted) setState(() => _isLoading = true);
 
+    int searchRadius = 5000; // Default 5km
+    if (_activeCategory == 'hotel' || _activeCategory == 'all') {
+      searchRadius = 20000; // 20km for hotels
+    }
+
     try {
       List<Map<String, dynamic>> results = await PlacesService().fetchPlaces(
         center: widget.currentLocation,
         category: _activeCategory,
+        radius: searchRadius,
       );
 
       if (mounted) {

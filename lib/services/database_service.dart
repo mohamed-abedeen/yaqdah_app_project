@@ -21,7 +21,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -49,7 +49,8 @@ class DatabaseService {
         startTime TEXT,
         endTime TEXT,
         avgSpeed TEXT,
-        maxSpeed TEXT
+        maxSpeed TEXT,
+        routePath TEXT
       )
     ''');
   }
@@ -66,6 +67,9 @@ class DatabaseService {
       await db.execute('ALTER TABLE trips ADD COLUMN endTime TEXT');
       await db.execute('ALTER TABLE trips ADD COLUMN avgSpeed TEXT');
       await db.execute('ALTER TABLE trips ADD COLUMN maxSpeed TEXT');
+    }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE trips ADD COLUMN routePath TEXT');
     }
   }
 
@@ -150,6 +154,7 @@ class DatabaseService {
     required String endTime,
     required String avgSpeed,
     required String maxSpeed,
+    required List<Map<String, double>> routePath, // ✅ NEW
     String? customDate, // ✅ Optional date override
   }) async {
     final db = await instance.database;
@@ -165,6 +170,7 @@ class DatabaseService {
       'endTime': endTime,
       'avgSpeed': avgSpeed,
       'maxSpeed': maxSpeed,
+      'routePath': jsonEncode(routePath), // ✅ Save as JSON
     });
   }
 
