@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -27,16 +28,16 @@ class AudioService {
             ]);
       }
     } catch (e) {
-      print("TTS Init Error: $e");
+      debugPrint("TTS Init Error: $e");
     }
 
     // 2. Setup STT (Microphone)
     bool available = await _speechToText.initialize(
-      onError: (val) => print('STT Error: $val'),
-      onStatus: (val) => print('STT Status: $val'),
+      onError: (val) => debugPrint('STT Error: $val'),
+      onStatus: (val) => debugPrint('STT Status: $val'),
     );
     if (!available) {
-      print("Speech recognition not available");
+      debugPrint("Speech recognition not available");
     }
   }
 

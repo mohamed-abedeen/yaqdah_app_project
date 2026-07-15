@@ -1,6 +1,10 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/database_service.dart';
+import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import '../providers/auth_provider.dart';
+import '../l10n/app_localizations.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -29,29 +33,29 @@ class _LoginScreenState extends State<LoginScreen> {
   final Color _accentColorDark = const Color(0xFFE5C943);
 
   void _handleLogin() async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _emailError = null;
       _passError = null;
     });
 
-    final emailText = _emailController.text.trim(); // ✅ Trim whitespace
+    final emailText = _emailController.text.trim();
     final passText = _passController.text;
 
-    // 1. Validation
     bool isValid = true;
     if (emailText.isEmpty) {
-      setState(() => _emailError = 'البريد الإلكتروني مطلوب');
+      setState(() => _emailError = l10n.loginErrEmailRequired);
       isValid = false;
     } else if (!RegExp(r'\S+@\S+\.\S+').hasMatch(emailText)) {
-      setState(() => _emailError = 'البريد الإلكتروني غير صحيح');
+      setState(() => _emailError = l10n.loginErrEmailInvalid);
       isValid = false;
     }
 
     if (passText.isEmpty) {
-      setState(() => _passError = 'كلمة المرور مطلوبة');
+      setState(() => _passError = l10n.loginErrPassRequired);
       isValid = false;
     } else if (passText.length < 6) {
-      setState(() => _passError = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+      setState(() => _passError = l10n.loginErrPassShort);
       isValid = false;
     }
 
@@ -59,22 +63,47 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    // ✅ Pass trimmed email
-    final user = await DatabaseService.instance.loginUser(emailText, passText);
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      await authProvider.signIn(email: emailText, password: passText);
 
-    setState(() => _isLoading = false);
-
-    if (user != null) {
       if (_rememberMe) {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('user_email', user['email']);
+        await prefs.setString('user_email', emailText);
       }
-      widget.onLogin(user);
-    } else {
+
+      setState(() => _isLoading = false);
+      widget.onLogin(authProvider.currentUser);
+    } on FirebaseAuthException catch (e) {
+      setState(() => _isLoading = false);
       if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        String message;
+        switch (e.code) {
+          case 'user-not-found':
+            message = l10n.loginErrNotFound;
+            break;
+          case 'wrong-password':
+          case 'invalid-credential':
+            message = l10n.loginErrWrongPass;
+            break;
+          case 'too-many-requests':
+            message = l10n.loginErrTooMany;
+            break;
+          default:
+            message = '${l10n.loginErrGeneric}: ${e.message}';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("البريد الإلكتروني أو كلمة المرور غير صحيحة"),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${l10n.loginErrUnexpected}: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -100,6 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -112,7 +142,6 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // --- Logo & Header ---
                   Container(
                     width: 100,
                     height: 100,
@@ -121,24 +150,24 @@ class _LoginScreenState extends State<LoginScreen> {
                       'images/yaqdah-05.png',
                       fit: BoxFit.contain,
                       errorBuilder: (c, o, s) => Icon(
-                        Icons.monitor_heart,
+                        CupertinoIcons.heart_fill,
                         color: _accentColor,
                         size: 60,
                       ),
                     ),
                   ),
-                  const Text(
-                    "يقظة",
-                    style: TextStyle(
+                  Text(
+                    l10n.loginTitle,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    "نظام كشف النعاس للسائقين",
-                    style: TextStyle(color: Colors.grey, fontSize: 14),
+                  Text(
+                    l10n.loginSubtitle,
+                    style: const TextStyle(color: Colors.grey, fontSize: 14),
                   ),
                   const SizedBox(height: 32),
 
@@ -154,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          "تسجيل الدخول",
+                          l10n.loginHeading,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _accentColor,
@@ -164,8 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Email Field
-                        _buildLabel("البريد الإلكتروني", Icons.email_outlined),
+                        _buildLabel(l10n.loginEmail, CupertinoIcons.mail),
                         const SizedBox(height: 8),
                         _buildTextField(
                           controller: _emailController,
@@ -176,12 +204,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         const SizedBox(height: 20),
 
-                        // Password Field
-                        _buildLabel("كلمة المرور", Icons.lock_outline),
+                        _buildLabel(
+                          l10n.loginPassword,
+                          CupertinoIcons.lock_fill,
+                        ),
                         const SizedBox(height: 8),
                         _buildTextField(
                           controller: _passController,
-                          hint: "••••••••",
+                          hint:
+                              "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
                           errorText: _passError,
                           isPassword: true,
                           isPasswordVisible: _isPasswordVisible,
@@ -192,7 +223,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
 
-                        // Forgot Password & Remember Me
                         const SizedBox(height: 10),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -211,9 +241,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                const Text(
-                                  "تذكرني",
-                                  style: TextStyle(
+                                Text(
+                                  l10n.loginRememberMe,
+                                  style: const TextStyle(
                                     color: Colors.grey,
                                     fontSize: 12,
                                   ),
@@ -226,9 +256,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 foregroundColor: _accentColor,
                                 padding: EdgeInsets.zero,
                               ),
-                              child: const Text(
-                                "نسيت كلمة المرور؟",
-                                style: TextStyle(fontSize: 12),
+                              child: Text(
+                                l10n.loginForgotPassword,
+                                style: const TextStyle(fontSize: 12),
                               ),
                             ),
                           ],
@@ -250,7 +280,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: _accentColor.withOpacity(0.3),
+                          color: _accentColor.withValues(alpha: 0.3),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -267,14 +297,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       child: _isLoading
                           ? const CircularProgressIndicator(color: Colors.black)
-                          : const Row(
+                          : Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.login, color: Colors.black),
-                                SizedBox(width: 8),
+                                const Icon(
+                                  CupertinoIcons.arrow_right_circle_fill,
+                                  color: Colors.black,
+                                ),
+                                const SizedBox(width: 8),
                                 Text(
-                                  "تسجيل الدخول",
-                                  style: TextStyle(
+                                  l10n.loginButton,
+                                  style: const TextStyle(
                                     color: Colors.black,
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
@@ -287,18 +320,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 24),
 
-                  // --- Signup Link ---
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text(
-                        "ليس لديك حساب؟ ",
-                        style: TextStyle(color: Colors.grey),
+                      Text(
+                        l10n.loginNoAccount,
+                        style: const TextStyle(color: Colors.grey),
                       ),
                       GestureDetector(
                         onTap: _navigateToSignup,
                         child: Text(
-                          "إنشاء حساب جديد",
+                          l10n.loginSignup,
                           style: TextStyle(
                             color: _accentColor,
                             fontWeight: FontWeight.bold,
@@ -353,7 +385,7 @@ class _LoginScreenState extends State<LoginScreen> {
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: TextStyle(color: Colors.grey.withOpacity(0.5)),
+              hintStyle: TextStyle(color: Colors.grey.withValues(alpha: 0.5)),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
@@ -363,8 +395,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ? IconButton(
                       icon: Icon(
                         isPasswordVisible
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
+                            ? CupertinoIcons.eye_fill
+                            : CupertinoIcons.eye_slash_fill,
                         color: Colors.grey,
                       ),
                       onPressed: onVisibilityToggle,
@@ -383,5 +415,12 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passController.dispose();
+    super.dispose();
   }
 }

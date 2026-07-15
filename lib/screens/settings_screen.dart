@@ -1,5 +1,7 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/edit_profile_modal.dart';
 import '../services/theme_service.dart';
@@ -22,8 +24,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Local state removed - using SettingsProvider
-
   void _openEditProfile() {
     showModalBottomSheet(
       context: context,
@@ -38,7 +38,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
           updatedUser['fullName'] = newName;
           updatedUser['emergencyContact'] = newEmergency;
-
           widget.onUpdateUser(updatedUser);
         },
       ),
@@ -48,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final textColor = theme.textTheme.bodyMedium!.color!;
     final green = theme.primaryColor;
     final red = theme.colorScheme.error;
@@ -65,26 +65,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "الإعدادات",
+                    l10n.settingsTitle,
                     style: TextStyle(
                       color: textColor,
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const Text(
-                    "إدارة حسابك والتطبيق",
-                    style: TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
+
                   const SizedBox(height: 20),
 
-                  // Profile Card
+                  // ── Profile Card ──────────────────────────────────────────
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          Colors.white.withOpacity(0.1),
+                          Colors.white.withValues(alpha: 0.1),
                           Colors.transparent,
                         ],
                       ),
@@ -94,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           112,
                           112,
                           112,
-                        ).withOpacity(0.3),
+                        ).withValues(alpha: 0.3),
                       ),
                       borderRadius: BorderRadius.circular(20),
                     ),
@@ -108,8 +105,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             borderRadius: BorderRadius.circular(80),
                           ),
                           child: const Icon(
-                            Icons.person_rounded,
-                            size: 40,
+                            CupertinoIcons.person_fill,
+                            size: 36,
                             color: Color.fromARGB(255, 0, 0, 0),
                           ),
                         ),
@@ -138,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               GestureDetector(
                                 onTap: _openEditProfile,
                                 child: Text(
-                                  "تعديل الملف الشخصي",
+                                  l10n.editProfile,
                                   style: TextStyle(
                                     color: purple,
                                     fontSize: 14,
@@ -154,11 +151,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  _sectionHeader("إعدادات الطوارئ"),
+                  // ── Emergency ─────────────────────────────────────────────
+                  _sectionHeader(l10n.sectionEmergency),
                   _buildSwitchCard(
-                    "اتصال طوارئ تلقائي",
-                    "عند النعاس الشديد",
-                    Icons.warning_amber,
+                    l10n.autoEmergencyTitle,
+                    l10n.autoEmergencySubtitle,
+                    CupertinoIcons.exclamationmark_triangle_fill,
                     red,
                     settings.autoEmergency,
                     (v) => settings.setAutoEmergency(v),
@@ -167,12 +165,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 24),
 
-                  _sectionHeader("الذكاء الاصطناعي"),
+                  // ── AI ────────────────────────────────────────────────────
+                  _sectionHeader(l10n.sectionAI),
                   _buildSwitchCard(
-                    "مساعد الذكاء الاصطناعي",
-                    "نصائح صوتية تلقائية عند الخطر",
-                    Icons.smart_toy,
-                    const Color(0xFF009688), // Teal
+                    l10n.aiAssistantTitle,
+                    l10n.aiAssistantSubtitle,
+                    CupertinoIcons.waveform_path_ecg,
+                    const Color(0xFF009688),
                     settings.aiAssistance,
                     (v) => settings.setAiAssistance(v),
                     theme,
@@ -180,7 +179,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 24),
 
-                  _sectionHeader("الإشعارات"),
+                  // ── Notifications ─────────────────────────────────────────
+                  _sectionHeader(l10n.sectionNotifications),
                   Container(
                     decoration: BoxDecoration(
                       color: theme.cardColor,
@@ -190,9 +190,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       children: [
                         _buildSwitchItem(
-                          "تفعيل الإشعارات",
-                          "تنبيهات النعاس والتحذيرات",
-                          Icons.notifications,
+                          l10n.enableNotifications,
+                          l10n.notificationsSubtitle,
+                          CupertinoIcons.bell_fill,
                           green,
                           settings.notifications,
                           (v) => settings.setNotifications(v),
@@ -201,18 +201,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (settings.notifications) ...[
                           Divider(color: theme.dividerColor, height: 1),
                           _buildSwitchItem(
-                            "الصوت",
+                            l10n.sound,
                             "",
-                            Icons.volume_up,
+                            CupertinoIcons.speaker_2_fill,
                             blue,
                             settings.sound,
                             (v) => settings.setSound(v),
                             theme,
                           ),
                           _buildSwitchItem(
-                            "الاهتزاز",
+                            l10n.vibration,
                             "",
-                            Icons.vibration,
+                            CupertinoIcons.waveform,
                             purple,
                             settings.vibration,
                             (v) => settings.setVibration(v),
@@ -225,14 +225,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 24),
 
-                  _sectionHeader("إعدادات التطبيق"),
+                  // ── App Settings ──────────────────────────────────────────
+                  _sectionHeader(l10n.sectionAppSettings),
                   ValueListenableBuilder<bool>(
                     valueListenable: ThemeService.instance.isDarkMode,
                     builder: (context, isDark, child) {
                       return _buildSwitchCard(
-                        "المظهر الداكن",
-                        "تغيير مظهر التطبيق",
-                        Icons.dark_mode,
+                        l10n.darkMode,
+                        l10n.darkModeSubtitle,
+                        CupertinoIcons.moon_stars_fill,
                         Colors.yellow,
                         isDark,
                         (v) => ThemeService.instance.toggleTheme(),
@@ -242,6 +243,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
 
                   const SizedBox(height: 10),
+
+                  // ── Test Lab ──────────────────────────────────────────────
                   GestureDetector(
                     onTap: () {
                       Navigator.push(
@@ -263,11 +266,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: ThemeService.blue.withOpacity(0.2),
+                              color: ThemeService.blue.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: const Icon(
-                              Icons.bug_report,
+                              CupertinoIcons.lab_flask_solid,
                               color: ThemeService.blue,
                               size: 20,
                             ),
@@ -278,15 +281,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  "اختبار النظام (Test Lab)",
+                                  l10n.testLab,
                                   style: TextStyle(
                                     color: theme.textTheme.bodyMedium!.color,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const Text(
-                                  "مشاهدة بيانات المودل مباشرة",
-                                  style: TextStyle(
+                                Text(
+                                  l10n.testLabSubtitle,
+                                  style: const TextStyle(
                                     color: Colors.grey,
                                     fontSize: 10,
                                   ),
@@ -295,7 +298,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           const Icon(
-                            Icons.arrow_forward_ios,
+                            CupertinoIcons.chevron_forward,
                             size: 14,
                             color: Colors.grey,
                           ),
@@ -306,9 +309,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 24),
 
+                  // ── Language ──────────────────────────────────────────────
+                  _sectionHeader(l10n.sectionLanguage),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: theme.cardColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _buildLanguageTile(
+                            label: l10n.languageEnglish,
+                            flag: '🇬🇧',
+                            langCode: 'en',
+                            isSelected: settings.locale.languageCode == 'en',
+                            settings: settings,
+                            theme: theme,
+                            isFirst: true,
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 50,
+                          color: theme.dividerColor,
+                        ),
+                        Expanded(
+                          child: _buildLanguageTile(
+                            label: l10n.languageArabic,
+                            flag: '🇸🇦',
+                            langCode: 'ar',
+                            isSelected: settings.locale.languageCode == 'ar',
+                            settings: settings,
+                            theme: theme,
+                            isFirst: false,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── Logout ────────────────────────────────────────────────
                   _buildActionCard(
-                    "تسجيل الخروج",
-                    Icons.logout,
+                    l10n.logout,
+                    CupertinoIcons.square_arrow_left,
                     red,
                     widget.onLogout,
                   ),
@@ -320,6 +367,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLanguageTile({
+    required String label,
+    required String flag,
+    required String langCode,
+    required bool isSelected,
+    required SettingsProvider settings,
+    required ThemeData theme,
+    required bool isFirst,
+  }) {
+    final isDark = theme.brightness == Brightness.dark;
+    final activeColor = isDark
+        ? const Color(0xFFFFC107)
+        : const Color.fromRGBO(52, 19, 163, 1);
+
+    return GestureDetector(
+      onTap: () => settings.setLocale(langCode),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor.withValues(alpha: 0.12) : null,
+          borderRadius: BorderRadius.horizontal(
+            left: isFirst ? const Radius.circular(20) : Radius.zero,
+            right: !isFirst ? const Radius.circular(20) : Radius.zero,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(flag, style: const TextStyle(fontSize: 20)),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected
+                    ? activeColor
+                    : theme.textTheme.bodyMedium!.color,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 14,
+              ),
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 6),
+              Icon(
+                CupertinoIcons.checkmark_circle_fill,
+                color: activeColor,
+                size: 16,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -363,7 +464,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
+              color: color.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color, size: 20),
@@ -391,8 +492,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: activeSwitchColor,
-            activeTrackColor: activeSwitchColor.withOpacity(0.3),
+            activeThumbColor: activeSwitchColor,
+            activeTrackColor: activeSwitchColor.withValues(alpha: 0.3),
             inactiveThumbColor: Colors.white,
             inactiveTrackColor: theme.dividerColor,
           ),
@@ -422,7 +523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
+              color: color.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 18),
@@ -450,8 +551,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: activeSwitchColor,
-            activeTrackColor: activeSwitchColor.withOpacity(0.3),
+            activeThumbColor: activeSwitchColor,
+            activeTrackColor: activeSwitchColor.withValues(alpha: 0.3),
           ),
         ],
       ),
@@ -469,9 +570,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

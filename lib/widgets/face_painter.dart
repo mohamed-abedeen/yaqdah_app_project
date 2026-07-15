@@ -32,7 +32,7 @@ class FacePainter extends CustomPainter {
     final Paint paintBlue = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0
-      ..color = Colors.blue.withOpacity(0.5);
+      ..color = Colors.blue.withValues(alpha: 0.5);
 
     for (final Face face in faces) {
       // Draw Face Bounding Box

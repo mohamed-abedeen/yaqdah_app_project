@@ -1,26 +1,23 @@
 import 'dart:io';
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import '../logic/drowsiness_logic.dart'; // ✅ Import Logic
+import '../services/face_monitoring_service.dart'; // Use Service
 
 class CameraFeed extends StatefulWidget {
   final List<CameraDescription> cameras;
   final bool isMonitoring;
   final bool showFeed;
-  final Function(String) onStatusChange;
-  final Function(int) onCameraChanged;
+  final void Function(String, Map<String, int>) onStatusChange;
+  final void Function(int) onCameraChanged;
 
   const CameraFeed({
-    Key? key,
+    super.key,
     required this.cameras,
     required this.isMonitoring,
     required this.showFeed,
     required this.onStatusChange,
     required this.onCameraChanged,
-  }) : super(key: key);
+  }) : super();
 
   @override
   State<CameraFeed> createState() => CameraFeedState();
@@ -28,23 +25,9 @@ class CameraFeed extends StatefulWidget {
 
 class CameraFeedState extends State<CameraFeed> {
   CameraController? _controller;
-  int _selectedCameraIndex = 0;
-  bool _isProcessing = false;
-
-  // 125ms = ~8 Frames Per Second (1000/125 = 8)
-  DateTime _lastFrameTime = DateTime.now();
-  final int _throttleMillis = 125; // Adjust as needed
-
-  //  Create instance of your Logic Engine
-  final DrowsinessLogic _logic = DrowsinessLogic();
-
-  final FaceDetector _faceDetector = FaceDetector(
-    options: FaceDetectorOptions(
-      enableClassification: true, // Needed for eyes
-      enableTracking: true,
-      performanceMode: FaceDetectorMode.accurate,
-    ),
-  );
+  int _selectedCameraIndex = 0; // Restored
+  //  Create instance of Service
+  final FaceMonitoringService _faceService = FaceMonitoringService();
 
   @override
   void initState() {
@@ -52,12 +35,30 @@ class CameraFeedState extends State<CameraFeed> {
     _initializeCamera();
   }
 
+  @override
+  void didUpdateWidget(CameraFeed oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    // Handle monitoring state change
+    if (widget.isMonitoring != oldWidget.isMonitoring) {
+      if (widget.isMonitoring) {
+        if (!_controller!.value.isStreamingImages) {
+          _controller!.startImageStream(_processImage);
+        }
+      } else {
+        if (_controller!.value.isStreamingImages) {
+          _controller!.stopImageStream();
+        }
+      }
+    }
+  }
+
   void _initializeCamera() async {
     if (widget.cameras.isEmpty) return;
 
     _controller = CameraController(
       widget.cameras[_selectedCameraIndex],
-      // Use Medium (480p/720p) - Good balance of speed/quality
       ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
@@ -70,17 +71,19 @@ class CameraFeedState extends State<CameraFeed> {
       if (mounted) {
         setState(() {});
         widget.onCameraChanged(_selectedCameraIndex);
-        _controller!.startImageStream(_processImage);
+        // Only start heavy image stream if monitoring is actively enabled
+        if (widget.isMonitoring) {
+          _controller!.startImageStream(_processImage);
+        }
       }
     } catch (e) {
-      print("Camera Error: $e");
+      debugPrint("Camera Error: $e");
     }
   }
 
   void switchCamera() {
     if (widget.cameras.length < 2) return;
 
-    // Stop old stream before switching
     _controller?.stopImageStream();
     _controller?.dispose();
     _controller = null;
@@ -93,120 +96,24 @@ class CameraFeedState extends State<CameraFeed> {
 
   // --- AI PROCESSING LOOP ---
   void _processImage(CameraImage image) async {
-    // 1. Basic Checks
-    if (_isProcessing || !widget.isMonitoring) return;
+    if (_controller == null || !mounted) return;
 
-    // ✅ CHECK: If less than 250ms passed, SKIP this frame.
-    if (DateTime.now().difference(_lastFrameTime).inMilliseconds <
-        _throttleMillis) {
-      return;
-    }
-
-    _isProcessing = true;
-    _lastFrameTime = DateTime.now(); // Reset timer
-
-    try {
-      final inputImage = _inputImageFromCameraImage(image);
-      if (inputImage == null) return;
-
-      final faces = await _faceDetector.processImage(inputImage);
-
-      if (faces.isEmpty) {
-        // If no face seen, wait a moment then trigger Distracted
-        widget.onStatusChange("DISTRACTED");
-      } else {
-        final face = faces.first;
-
-        // ✅ PASS DATA TO LOGIC ENGINE
-        final DriverState state = _logic.checkFace(face);
-
-        // ✅ CONVERT RESULT TO STRING FOR APP
-        String statusString = "AWAKE";
-        switch (state) {
-          case DriverState.awake:
-            statusString = "AWAKE";
-            break;
-          case DriverState.drowsy:
-            statusString = "DROWSY";
-            break;
-          case DriverState.asleep:
-            statusString = "ASLEEP";
-            break;
-          case DriverState.distracted:
-            statusString = "DISTRACTED";
-            break;
-        }
-
-        widget.onStatusChange(statusString);
-      }
-    } catch (e) {
-      print("Error processing face: $e");
-    } finally {
-      _isProcessing = false;
-    }
-  }
-
-  InputImage? _inputImageFromCameraImage(CameraImage image) {
-    if (_controller == null) return null; // Safety check
-
-    final camera = widget.cameras[_selectedCameraIndex];
-    final sensorOrientation = camera.sensorOrientation;
-
-    InputImageRotation? rotation;
-    if (Platform.isIOS) {
-      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
-    } else if (Platform.isAndroid) {
-      var rotationCompensation =
-          _orientations[_controller!.value.deviceOrientation];
-      if (rotationCompensation == null) return null;
-      if (camera.lensDirection == CameraLensDirection.front) {
-        rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
-      } else {
-        rotationCompensation =
-            (sensorOrientation - rotationCompensation + 360) % 360;
-      }
-      rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
-    }
-
-    if (rotation == null) return null;
-
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null ||
-        (Platform.isAndroid && format != InputImageFormat.nv21) ||
-        (Platform.isIOS && format != InputImageFormat.bgra8888)) {
-      return null;
-    }
-
-    if (image.planes.isEmpty) return null;
-
-    final WriteBuffer allBytes = WriteBuffer();
-    for (final Plane plane in image.planes) {
-      allBytes.putUint8List(plane.bytes);
-    }
-    final bytes = allBytes.done().buffer.asUint8List();
-
-    final metadata = InputImageMetadata(
-      size: Size(image.width.toDouble(), image.height.toDouble()),
-      rotation: rotation,
-      format: format,
-      bytesPerRow: image.planes.first.bytesPerRow,
+    await _faceService.processFrame(
+      image: image,
+      camera: widget.cameras[_selectedCameraIndex],
+      deviceOrientation: _controller!.value.deviceOrientation,
+      isMonitoring: widget.isMonitoring,
+      onStatusChange: (status, metrics) {
+        if (mounted) widget.onStatusChange(status, metrics);
+      },
     );
-
-    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
   }
-
-  final _orientations = {
-    DeviceOrientation.portraitUp: 0,
-    DeviceOrientation.landscapeLeft: 90,
-    DeviceOrientation.portraitDown: 180,
-    DeviceOrientation.landscapeRight: 270,
-  };
 
   @override
   void dispose() {
     _controller?.stopImageStream();
     _controller?.dispose();
-    _faceDetector.close();
+    _faceService.dispose();
     super.dispose();
   }
 

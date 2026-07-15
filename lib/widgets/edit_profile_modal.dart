@@ -113,9 +113,11 @@ class _EditProfileModalState extends State<EditProfileModal> {
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: green.withOpacity(0.2),
+                              color: green.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: green.withOpacity(0.5)),
+                              border: Border.all(
+                                color: green.withValues(alpha: 0.5),
+                              ),
                             ),
                             child: Icon(Icons.person, color: green, size: 20),
                           ),
@@ -344,7 +346,7 @@ class _EditProfileModalState extends State<EditProfileModal> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.2),
+                color: color.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color, size: 20),
@@ -401,5 +403,15 @@ class _EditProfileModalState extends State<EditProfileModal> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _emergencyController.dispose();
+    _currentPassController.dispose();
+    _newPassController.dispose();
+    super.dispose();
   }
 }

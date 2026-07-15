@@ -53,15 +53,17 @@ class PlacesService {
       (
         ${unionBody.toString()}
       );
-      out body;
-      >;
-      out skel qt;
+      out center;
     """;
 
     final url = Uri.parse("https://overpass-api.de/api/interpreter");
 
     try {
-      final response = await http.post(url, body: query);
+      final response = await http.post(
+        url,
+        body: query,
+        headers: {'User-Agent': 'YaqdahApp/1.0'},
+      );
 
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));

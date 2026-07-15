@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import '../services/database_service.dart';
+import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import '../providers/auth_provider.dart';
+import '../l10n/app_localizations.dart';
 
 class SignupScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onLogin;
@@ -37,7 +40,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final Color _accentColorDark = const Color(0xFFE5C943);
 
   void _handleSignup() async {
-    // 1. Reset Errors
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _nameError = null;
       _emailError = null;
@@ -46,7 +49,6 @@ class _SignupScreenState extends State<SignupScreen> {
       _emergencyError = null;
     });
 
-    // 2. Prepare Data (Trim Whitespace)
     final nameText = _nameController.text.trim();
     final emailText = _emailController.text.trim();
     final passText = _passwordController.text;
@@ -55,45 +57,40 @@ class _SignupScreenState extends State<SignupScreen> {
 
     bool isValid = true;
 
-    // 3. Validation
     if (nameText.isEmpty) {
-      setState(() => _nameError = 'الاسم الكامل مطلوب');
+      setState(() => _nameError = l10n.signupErrNameRequired);
       isValid = false;
     }
 
     if (emailText.isEmpty) {
-      setState(() => _emailError = 'البريد الإلكتروني مطلوب');
+      setState(() => _emailError = l10n.signupErrEmailRequired);
       isValid = false;
     } else if (!RegExp(r'\S+@\S+\.\S+').hasMatch(emailText)) {
-      setState(() => _emailError = 'البريد الإلكتروني غير صحيح');
+      setState(() => _emailError = l10n.signupErrEmailInvalid);
       isValid = false;
     }
 
     if (passText.isEmpty) {
-      setState(() => _passwordError = 'كلمة المرور مطلوبة');
+      setState(() => _passwordError = l10n.signupErrPassRequired);
       isValid = false;
     } else if (passText.length < 6) {
-      setState(
-        () => _passwordError = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل',
-      );
+      setState(() => _passwordError = l10n.signupErrPassShort);
       isValid = false;
     }
 
     if (confirmPassText.isEmpty) {
-      setState(() => _confirmPasswordError = 'تأكيد كلمة المرور مطلوب');
+      setState(() => _confirmPasswordError = l10n.signupErrConfirmRequired);
       isValid = false;
     } else if (passText != confirmPassText) {
-      setState(() => _confirmPasswordError = 'كلمة المرور غير متطابقة');
+      setState(() => _confirmPasswordError = l10n.signupErrPassMismatch);
       isValid = false;
     }
 
     if (emergencyText.isEmpty) {
-      setState(() => _emergencyError = 'رقم الطوارئ مطلوب');
+      setState(() => _emergencyError = l10n.signupErrEmergencyRequired);
       isValid = false;
     } else if (!RegExp(r'^\d+$').hasMatch(emergencyText)) {
-      setState(
-        () => _emergencyError = 'رقم الطوارئ يجب أن يحتوي على أرقام فقط',
-      );
+      setState(() => _emergencyError = l10n.signupErrEmergencyNumbers);
       isValid = false;
     }
 
@@ -102,33 +99,50 @@ class _SignupScreenState extends State<SignupScreen> {
     // 4. Attempt Registration
     setState(() => _isLoading = true);
 
-    bool success = await DatabaseService.instance.registerUser(
-      emailText,
-      passText,
-      nameText,
-      emergencyText,
-    );
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      await authProvider.register(
+        email: emailText,
+        password: passText,
+        fullName: nameText,
+        emergencyContact: emergencyText,
+      );
 
-    setState(() => _isLoading = false);
+      setState(() => _isLoading = false);
 
-    if (success) {
-      // Create user object for state
-      Map<String, dynamic> newUser = {
-        'fullName': nameText,
-        'email': emailText,
-        'emergencyContact': emergencyText,
-      };
-
-      // ✅ Update Parent State (HomeScreen)
-      widget.onLogin(newUser);
-
-      // ✅ Pop the Signup Screen to reveal the Home Screen (now logged in)
-      if (mounted) Navigator.pop(context);
-    } else {
+      // Update Parent State (HomeScreen)
+      // Note: The onLogin callback (from LoginScreen) already handles
+      // popping both screens, so we do NOT call Navigator.pop here.
+      widget.onLogin(authProvider.currentUser);
+    } on FirebaseAuthException catch (e) {
+      setState(() => _isLoading = false);
       if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        String message;
+        switch (e.code) {
+          case 'email-already-in-use':
+            message = l10n.signupErrEmailInUse;
+            break;
+          case 'weak-password':
+            message = l10n.signupErrWeakPassword;
+            break;
+          case 'invalid-email':
+            message = l10n.signupErrEmailInvalid;
+            break;
+          default:
+            message = '${l10n.loginErrGeneric}: ${e.message}';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("البريد الإلكتروني مستخدم بالفعل!"),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${l10n.loginErrUnexpected}: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -275,7 +289,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: _accentColor.withOpacity(0.3),
+                          color: _accentColor.withValues(alpha: 0.3),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -379,7 +393,7 @@ class _SignupScreenState extends State<SignupScreen> {
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: TextStyle(color: Colors.grey.withOpacity(0.5)),
+              hintStyle: TextStyle(color: Colors.grey.withValues(alpha: 0.5)),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
@@ -409,5 +423,15 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _emergencyContactController.dispose();
+    super.dispose();
   }
 }

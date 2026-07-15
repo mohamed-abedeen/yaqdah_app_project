@@ -23,7 +23,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     ].request();
   }
 
-  void _onIntroEnd(context) async {
+  void _onIntroEnd(BuildContext context) async {
     await _requestPermissions();
     if (context.mounted) {
       Provider.of<AuthProvider>(context, listen: false).completeOnboarding();

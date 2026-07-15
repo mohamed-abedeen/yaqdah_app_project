@@ -2,10 +2,19 @@ plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
+}
+dependencies {
+    // Import the Firebase BoM
+    implementation(platform("com.google.firebase:firebase-bom:34.9.0"))
+
+    // Firebase products
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-auth")
 }
 
 android {
-    namespace = "com.example.yaqdah_app"
+    namespace = "com.example.yaqdah"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "28.2.13676358" // <--- THIS FIXES THE VERSION ERROR
 
@@ -24,7 +33,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.yaqdah_app"
+        applicationId = "com.example.yaqdah"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration
         minSdk = flutter.minSdkVersion

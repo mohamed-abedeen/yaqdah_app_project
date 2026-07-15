@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import '../config/app_config.dart';
 
 class GeminiService {
-  static const String _apiKey = '';
+  static String get _apiKey => AppConfig.geminiApiKey;
   // Replace with your actual API key after you publish the app.
 
   late GenerativeModel _model;
@@ -43,62 +45,87 @@ class GeminiService {
     }
   }
 
-  Future<String> getIntervention(String state) async {
+  /// Returns an intervention message for [state].
+  /// Set [locale] to 'en' for English; defaults to Arabic.
+  Future<String> getIntervention(String state, {String locale = 'ar'}) async {
+    final bool isAr = locale == 'ar';
     String prompt;
     switch (state) {
       case "DISTRACTED":
-        prompt =
-            "You are a smart driver assistance AI. The driver is distracted and looking away from the road. "
-            "Speak in Arabic. Give a sharp, authoritative, and very short command (max 5 words) to make him look at the road immediately. "
-            "Choose the most effective phrase for this critical safety situation. Example: 'انتبه للطريق فوراً!'";
+        prompt = isAr
+            ? "You are a smart driver assistance AI. The driver is distracted. "
+                  "Speak in Arabic. Give a sharp, very short command (max 5 words) "
+                  "to make him look at the road. Example: 'انتبه للطريق فوراً!'"
+            : "You are a smart driver assistance AI. The driver is distracted. "
+                  "Give a sharp, very short English command (max 5 words) to "
+                  "make them focus on the road. Example: 'Eyes on the road!'";
         break;
       case "DROWSY":
-        prompt =
-            "You are a smart driver assistance AI. The driver is showing signs of drowsiness (closing eyes, yawning). "
-            "Speak in Arabic. Your goal is to wake him up. Give the single best piece of advice for this moment (e.g., open window, stop car, wash face). "
-            "Keep it short, urgent, and loud. (Max 8 words).";
+        prompt = isAr
+            ? "You are a smart driver assistance AI. The driver is drowsy. "
+                  "Speak in Arabic. Give the single best advice to wake them up (max 8 words)."
+            : "You are a smart driver assistance AI. The driver is drowsy. "
+                  "Give the single best English advice to wake them up (max 8 words).";
         break;
       case "ASLEEP":
-        prompt =
-            "The driver has fallen ASLEEP! This is a life-threatening emergency. "
-            "Scream in Arabic to WAKE UP NOW! Use the most alarming words possible. (Max 3 words). Example: 'اصحى! خطر!'";
+        prompt = isAr
+            ? "The driver has fallen ASLEEP! Scream in Arabic to wake up NOW (max 3 words). Example: 'اصحى! خطر!'"
+            : "The driver has fallen ASLEEP! Shout a very short English wake-up command (max 3 words). Example: 'WAKE UP NOW!'";
         break;
       default:
-        prompt = "Say Hello in Arabic";
+        prompt = isAr ? "قل مرحبا" : "Say Hello";
     }
     return _sendPrompt(prompt);
   }
 
-  Future<String> chatWithDriver(String userMessage) async {
-    String prompt =
-        "You are 'Yaqdah' (يقظة), a smart AI co-pilot for preventing drowsiness. "
-        "The driver is speaking to you in Arabic to stay awake. "
-        "Driver said: '$userMessage'\n"
-        "Reply in friendly, engaging Arabic to keep the conversation going and keep him awake. "
-        "Keep your answers concise (max 2 sentences).";
+  /// Respond to a voice command from the driver.
+  /// Set [locale] to 'en' for English; defaults to Arabic.
+  Future<String> chatWithDriver(
+    String userMessage, {
+    String locale = 'ar',
+  }) async {
+    final bool isAr = locale == 'ar';
+    final String prompt = isAr
+        ? "You are 'Yaqdah' (يقظة), a smart AI co-pilot for preventing drowsiness. "
+              "The driver is speaking to you in Arabic to stay awake. "
+              "Driver said: '$userMessage'\n"
+              "Reply in friendly, engaging Arabic to keep the conversation going. "
+              "Keep your answers concise (max 2 sentences)."
+        : "You are 'Yaqdah', a smart AI co-pilot for preventing drowsiness. "
+              "The driver is speaking to you in English. "
+              "Driver said: '$userMessage'\n"
+              "Reply in friendly, engaging English to keep them awake. "
+              "Keep your answers concise (max 2 sentences).";
 
     return _sendPrompt(prompt);
   }
 
   Future<String> _sendPrompt(String prompt) async {
+    if (_apiKey.isEmpty) {
+      return "خطأ: مفتاح API غير مُعيَّن. شغّل التطبيق مع --dart-define=GEMINI_API_KEY=xxx";
+    }
     try {
       final content = [Content.text(prompt)];
-      final response = await _model.generateContent(content);
+      final response = await _model
+          .generateContent(content)
+          .timeout(const Duration(seconds: 15));
       return response.text ?? "لا يوجد رد";
+    } on TimeoutException {
+      debugPrint("⏱ GEMINI TIMEOUT");
+      return "انتهت مهلة الاتصال. تحقق من اتصالك بالإنترنت.";
     } catch (e) {
-      debugPrint("❌ GEMINI ERROR DETAILED: $e");
-
-      if (e.toString().contains("404") || e.toString().contains("not found")) {
+      debugPrint("❌ GEMINI ERROR: $e");
+      final msg = e.toString();
+      if (msg.contains("404") || msg.contains("not found")) {
         return "خطأ: الموديل غير موجود (404). تأكد من المفتاح.";
       }
-      if (e.toString().contains("403")) {
+      if (msg.contains("403")) {
         return "خطأ: مفتاح API غير صالح (403)";
       }
-      if (e.toString().contains("User location is not supported")) {
+      if (msg.contains("User location is not supported")) {
         return "خطأ: الخدمة غير متوفرة في منطقتك";
       }
-
-      return "خطأ في الاتصال: $e";
+      return "خطأ في الاتصال. حاول مرة أخرى.";
     }
   }
 }

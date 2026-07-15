@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsProvider with ChangeNotifier {
@@ -7,12 +7,14 @@ class SettingsProvider with ChangeNotifier {
   bool _vibration = true;
   bool _autoEmergency = false;
   bool _aiAssistance = true;
+  Locale _locale = const Locale('ar');
 
   bool get notifications => _notifications;
   bool get sound => _sound;
   bool get vibration => _vibration;
   bool get autoEmergency => _autoEmergency;
   bool get aiAssistance => _aiAssistance;
+  Locale get locale => _locale;
 
   SettingsProvider() {
     _loadSettings();
@@ -25,6 +27,8 @@ class SettingsProvider with ChangeNotifier {
     _vibration = prefs.getBool('vibration_enabled') ?? true;
     _autoEmergency = prefs.getBool('auto_emergency') ?? false;
     _aiAssistance = prefs.getBool('ai_assistance_enabled') ?? true;
+    final langCode = prefs.getString('app_locale') ?? 'ar';
+    _locale = Locale(langCode);
     notifyListeners();
   }
 
@@ -60,6 +64,13 @@ class SettingsProvider with ChangeNotifier {
     _aiAssistance = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('ai_assistance_enabled', value);
+    notifyListeners();
+  }
+
+  Future<void> setLocale(String langCode) async {
+    _locale = Locale(langCode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_locale', langCode);
     notifyListeners();
   }
 }

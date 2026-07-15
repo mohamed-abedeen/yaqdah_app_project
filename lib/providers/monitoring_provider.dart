@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../services/audio_service.dart';
 import '../services/gemini_service.dart';
 import '../services/location_sms_service.dart';
-
+import '../providers/auth_provider.dart';
 import 'settings_provider.dart';
 
 class MonitoringProvider with ChangeNotifier {
@@ -11,12 +11,14 @@ class MonitoringProvider with ChangeNotifier {
   final LocationSmsService _smsService = LocationSmsService();
 
   SettingsProvider? _settings;
+  AuthProvider? _auth; // always-fresh reference for emergency contact
 
   bool _isMonitoring = false;
   String _status = "IDLE";
   double _drowsinessLevel = 0.0;
   String _aiMessage = "Press Start";
   bool _isListening = false;
+  double _currentScore = 100.0;
 
   // Dependencies
   String? _emergencyContact;
@@ -26,6 +28,7 @@ class MonitoringProvider with ChangeNotifier {
   double get drowsinessLevel => _drowsinessLevel;
   String get aiMessage => _aiMessage;
   bool get isListening => _isListening;
+  double get currentScore => _currentScore;
 
   MonitoringProvider() {
     _audio.init();
@@ -36,6 +39,11 @@ class MonitoringProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Call this whenever AuthProvider changes so we always have the fresh user.
+  void updateAuth(AuthProvider auth) {
+    _auth = auth;
+  }
+
   void setEmergencyContact(String contact) {
     _emergencyContact = contact;
   }
@@ -44,6 +52,8 @@ class MonitoringProvider with ChangeNotifier {
     _isMonitoring = !_isMonitoring;
     if (!_isMonitoring) {
       _audio.stopAll(); // ✅ Stop all audio when monitoring ends (Trip End)
+    } else {
+      _currentScore = 100.0; // Reset score when starting new trip
     }
     notifyListeners();
   }
@@ -55,8 +65,20 @@ class MonitoringProvider with ChangeNotifier {
     const Duration(seconds: 10),
   );
 
-  void handleStatusChange(String newStatus) {
+  void handleStatusChange(String newStatus, Map<String, int> metrics) {
     if (!_isMonitoring) return;
+
+    // Calculate Driver Score
+    int mCount = metrics['microsleeps'] ?? 0;
+    int dWarnings = metrics['drowsyWarnings'] ?? 0;
+    int distWarnings = metrics['distractionWarnings'] ?? 0;
+
+    double calculatedScore =
+        100.0 - (mCount * 2) - (distWarnings * 5) - (dWarnings * 10);
+    if (newStatus == "ASLEEP") {
+      calculatedScore -= 50;
+    }
+    _currentScore = calculatedScore.clamp(0.0, 100.0);
 
     switch (newStatus) {
       case "AWAKE":
@@ -69,6 +91,10 @@ class MonitoringProvider with ChangeNotifier {
       case "DISTRACTED":
         _triggerBeep(); // ✅ Trigger alert sound for distraction
         _triggerGemini("DISTRACTED");
+        _drowsinessLevel = 45;
+        break;
+      case "NO_FACE":
+        _triggerBeep();
         _drowsinessLevel = 45;
         break;
       case "DROWSY":
@@ -111,16 +137,24 @@ class MonitoringProvider with ChangeNotifier {
   }
 
   Future<void> triggerSOS() async {
-    // Alarm Sound (Critical, but respecting sound setting if explicit)
-    // Actually, for safety, Alarm usually overrides, but let's respect the "Sound" toggle for now as requested.
+    // Alarm Sound
     if (_settings == null || _settings!.sound) {
       await _audio.playAlarm();
     }
 
-    // Auto Emergency SMS
+    // Auto Emergency SMS — read the CURRENT contact fresh from AuthProvider
+    // so updating the number in Settings always takes effect immediately.
     if (_settings != null && _settings!.autoEmergency) {
-      if (_emergencyContact != null && _emergencyContact!.isNotEmpty) {
-        _smsService.sendEmergencyAlert(targetNumber: _emergencyContact!);
+      final contact =
+          (_auth?.currentUser['emergencyContact'] as String?) ??
+          _emergencyContact ??
+          '';
+      if (contact.isNotEmpty) {
+        _smsService.sendEmergencySms(
+          phoneNumber: contact,
+          message:
+              'SOS - Driver may be in danger! Automated alert from Yaqdah.',
+        );
       }
     }
   }
@@ -138,6 +172,26 @@ class MonitoringProvider with ChangeNotifier {
 
       await _audio.listen((text) async {
         _isListening = false;
+        notifyListeners();
+
+        // 1. Check for Local Commands
+        final command = text.toLowerCase();
+        if (command.contains("stop monitoring") ||
+            command.contains("end trip")) {
+          _aiMessage = "Stopping monitoring...";
+          notifyListeners();
+          await _audio.speak("Stopping monitoring.");
+          toggleMonitoring();
+          return;
+        } else if (command.contains("emergency") || command.contains("help")) {
+          _aiMessage = "Triggering SOS...";
+          notifyListeners();
+          await _audio.speak("Triggering emergency alert.");
+          triggerSOS();
+          return;
+        }
+
+        // 2. Fallback to Gemini
         _aiMessage = "Analyzing...";
         notifyListeners();
 

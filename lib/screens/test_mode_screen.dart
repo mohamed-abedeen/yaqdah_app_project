@@ -1,5 +1,3 @@
-// ignore_for_file: deprecated_member_use
-
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -191,9 +189,9 @@ class _TestModeScreenState extends State<TestModeScreen> {
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: ThemeService.Green),
+                border: Border.all(color: ThemeService.green),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -202,7 +200,7 @@ class _TestModeScreenState extends State<TestModeScreen> {
                   _row(
                     "STATUS",
                     _status,
-                    _status == "ACTIVE" ? ThemeService.Green : ThemeService.red,
+                    _status == "ACTIVE" ? ThemeService.green : ThemeService.red,
                   ),
                   const Divider(color: Colors.grey),
                   _row(

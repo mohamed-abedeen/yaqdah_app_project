@@ -7,9 +7,9 @@ import 'package:printing/printing.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../services/theme_service.dart';
+import '../config/app_config.dart';
 
-const String _mapboxAccessToken =
-    'pk.eyJ1IjoibW9ob3oiLCJhIjoiY21rNng0eTBhMG1tejNmc2hkZjg2djg5cSJ9.EhZ_hhGrpAGJRb1j-O5eIw';
+String get _mapboxAccessToken => AppConfig.mapboxAccessToken;
 
 class TripDetailModal extends StatelessWidget {
   final Map<String, dynamic> trip;
@@ -66,8 +66,9 @@ class TripDetailModal extends StatelessWidget {
           String raw = e.toString();
           String lower = raw.toLowerCase();
 
-          if (lower.contains('trip started') || lower.contains('trip ended'))
+          if (lower.contains('trip started') || lower.contains('trip ended')) {
             continue;
+          }
 
           String type = 'Drowsiness Detected';
           String severity = 'high';
@@ -195,8 +196,8 @@ class TripDetailModal extends StatelessWidget {
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
                             color: isSafe
-                                ? green.withOpacity(0.2)
-                                : orange.withOpacity(0.2),
+                                ? green.withValues(alpha: 0.2)
+                                : orange.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: isSafe ? green : orange),
                           ),
@@ -249,8 +250,8 @@ class TripDetailModal extends StatelessWidget {
                         ),
                         decoration: BoxDecoration(
                           color: isSafe
-                              ? green.withOpacity(0.2)
-                              : orange.withOpacity(0.2),
+                              ? green.withValues(alpha: 0.2)
+                              : orange.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(30),
                           border: Border.all(color: isSafe ? green : orange),
                         ),

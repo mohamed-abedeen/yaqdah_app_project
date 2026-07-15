@@ -1,20 +1,21 @@
-// ignore_for_file: deprecated_member_use
-
 import 'package:camera/camera.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'dart:ui';
+import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
 import '../providers/monitoring_provider.dart';
 import '../providers/location_provider.dart';
 import 'rest_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
+
+import '../services/connectivity_service.dart';
 import 'login_screen.dart';
 import '../widgets/camera_feed.dart';
 import '../widgets/dashboard_ui.dart';
-
 import 'onboarding_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -109,6 +110,7 @@ class _MainLayoutState extends State<MainLayout> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final l10n = AppLocalizations.of(context)!;
     final monitoringProvider = Provider.of<MonitoringProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final locationProvider = Provider.of<LocationProvider>(context);
@@ -124,7 +126,8 @@ class _MainLayoutState extends State<MainLayout> {
                 cameras: widget.cameras,
                 isMonitoring: monitoringProvider.isMonitoring,
                 showFeed: true,
-                onStatusChange: monitoringProvider.handleStatusChange,
+                onStatusChange: (status, metrics) =>
+                    monitoringProvider.handleStatusChange(status, metrics),
                 onCameraChanged: _updateCameraName,
               ),
             ),
@@ -143,14 +146,46 @@ class _MainLayoutState extends State<MainLayout> {
                   _micTop += details.delta.dy;
                 });
               },
-              child: FloatingActionButton(
-                heroTag: "mic",
-                backgroundColor: monitoringProvider.isListening
-                    ? Colors.red
-                    : theme.primaryColor,
-                onPressed: monitoringProvider.toggleListening,
-                child: Icon(
-                  monitoringProvider.isListening ? Icons.mic_off : Icons.mic,
+              onPanEnd: (details) {
+                final screenWidth = MediaQuery.of(context).size.width;
+                setState(() {
+                  if (_micLeft + 28 < screenWidth / 2) {
+                    _micLeft = 20; // Snap to left
+                  } else {
+                    _micLeft = screenWidth - 76; // Snap to right
+                  }
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: monitoringProvider.isListening
+                      ? [
+                          BoxShadow(
+                            color: Colors.blueAccent.withValues(alpha: 0.6),
+                            blurRadius: 20,
+                            spreadRadius: 8,
+                          ),
+                          BoxShadow(
+                            color: Colors.blue.withValues(alpha: 0.4),
+                            blurRadius: 40,
+                            spreadRadius: 16,
+                          ),
+                        ]
+                      : [],
+                ),
+                child: FloatingActionButton(
+                  heroTag: "mic",
+                  backgroundColor: monitoringProvider.isListening
+                      ? Colors.red
+                      : theme.primaryColor,
+                  onPressed: monitoringProvider.toggleListening,
+                  child: Icon(
+                    monitoringProvider.isListening
+                        ? CupertinoIcons.mic_slash_fill
+                        : CupertinoIcons.mic_fill,
+                  ),
                 ),
               ),
             ),
@@ -169,14 +204,58 @@ class _MainLayoutState extends State<MainLayout> {
       ),
     ];
 
-    final navBarColor = theme.cardColor.withOpacity(isDark ? 0.8 : 0.95);
+    final navBarColor = theme.cardColor.withValues(alpha: isDark ? 0.8 : 0.95);
     final navBarBorder = theme.dividerColor;
+
+    Color getDynamicBgColor() {
+      if (!monitoringProvider.isMonitoring) {
+        return theme.scaffoldBackgroundColor;
+      }
+      switch (monitoringProvider.status) {
+        case "DROWSY":
+          return Colors.orange.withValues(alpha: isDark ? 0.15 : 0.1);
+        case "DISTRACTED":
+          return Colors.amber.withValues(alpha: isDark ? 0.15 : 0.1);
+        case "ASLEEP":
+          return Colors.red.withValues(alpha: isDark ? 0.3 : 0.2);
+        default:
+          return theme.scaffoldBackgroundColor;
+      }
+    }
 
     return Scaffold(
       extendBody: true,
-      body: Container(
-        decoration: BoxDecoration(color: theme.scaffoldBackgroundColor),
-        child: IndexedStack(index: _currentIndex, children: screens),
+      backgroundColor: Colors.transparent,
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 800),
+        decoration: BoxDecoration(color: getDynamicBgColor()),
+        child: ValueListenableBuilder<bool>(
+          valueListenable: ConnectivityService.instance.isConnectedNotifier,
+          builder: (context, isConnected, child) {
+            return Column(
+              children: [
+                if (!isConnected)
+                  Container(
+                    width: double.infinity,
+                    color: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      l10n.offlineBanner,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                Expanded(
+                  child: IndexedStack(index: _currentIndex, children: screens),
+                ),
+              ],
+            );
+          },
+        ),
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
@@ -194,10 +273,10 @@ class _MainLayoutState extends State<MainLayout> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _navItem(Icons.home_rounded, "Home", 0),
-                  _navItem(Icons.description_outlined, "Reports", 1),
-                  _navItem(Icons.coffee_outlined, "Rest", 2),
-                  _navItem(Icons.person_outline, "Account", 3),
+                  _navItem(CupertinoIcons.house_fill, l10n.navHome, 0),
+                  _navItem(CupertinoIcons.doc_text, l10n.navReports, 1),
+                  _navItem(CupertinoIcons.bed_double_fill, l10n.navRest, 2),
+                  _navItem(CupertinoIcons.person_fill, l10n.navAccount, 3),
                 ],
               ),
             ),
@@ -227,7 +306,7 @@ class _MainLayoutState extends State<MainLayout> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? selectedColor.withOpacity(0.15)
+              ? selectedColor.withValues(alpha: 0.15)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
         ),

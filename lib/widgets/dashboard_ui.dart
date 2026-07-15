@@ -1,9 +1,11 @@
-// ignore_for_file: unused_field, deprecated_member_use, curly_braces_in_flow_control_structures
+// ignore_for_file: unused_field
 
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
@@ -13,10 +15,13 @@ import 'package:intl/intl.dart';
 import '../services/database_service.dart';
 import '../services/theme_service.dart';
 import '../providers/monitoring_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
+import '../config/app_config.dart';
+import '../services/sync_service.dart';
+import '../logic/gamification_logic.dart';
 
-const String _mapboxAccessToken =
-    'pk.eyJ1IjoibW9ob3oiLCJhIjoiY21rNng0eTBhMG1tejNmc2hkZjg2djg5cSJ9.EhZ_hhGrpAGJRb1j-O5eIw';
+String get _mapboxAccessToken => AppConfig.mapboxAccessToken;
 
 class DashboardUI extends StatefulWidget {
   final VoidCallback onSwitchCamera;
@@ -49,6 +54,7 @@ class DashboardUIState extends State<DashboardUI>
   Timer? _tripTimer;
 
   bool _tripSessionActive = false;
+  bool _isStandbyMode = false;
 
   DateTime? _tripStartTime;
   double _totalDistanceTraveled = 0.0;
@@ -127,8 +133,6 @@ class DashboardUIState extends State<DashboardUI>
 
   void _onMonitoringStateChange() {
     if (!mounted || !_tripSessionActive) return;
-    final monitor = Provider.of<MonitoringProvider>(context, listen: false);
-    final status = monitor.status;
 
     // Logic from didUpdateWidget
     // We need to compare with "previous" status but Providers don't give "previous".
@@ -160,8 +164,9 @@ class DashboardUIState extends State<DashboardUI>
 
   void _startTripTimer() {
     _tripTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_tripSessionActive && mounted) {
-        setState(() => _tripDurationSeconds++);
+      if (_tripSessionActive && mounted && _tripStartTime != null) {
+        final duration = DateTime.now().difference(_tripStartTime!);
+        setState(() => _tripDurationSeconds = duration.inSeconds);
       }
     });
   }
@@ -175,10 +180,11 @@ class DashboardUIState extends State<DashboardUI>
 
   void _toggleTrip() {
     final monitor = Provider.of<MonitoringProvider>(context, listen: false);
-    if (monitor.isMonitoring)
+    if (monitor.isMonitoring) {
       _endTrip();
-    else
+    } else {
       _startTrip();
+    }
   }
 
   void _startTrip() {
@@ -208,43 +214,78 @@ class DashboardUIState extends State<DashboardUI>
 
   void _endTrip() async {
     final monitor = Provider.of<MonitoringProvider>(context, listen: false);
-    final location = Provider.of<LocationProvider>(
-      context,
-      listen: false,
-    ); // ✅ Get LocationProvider
+    final location = Provider.of<LocationProvider>(context, listen: false);
 
-    _tripEvents.add("${DateTime.now().toIso8601String()}: 🛑 Trip Ended");
-    String finalStatus = _hasDangerousEvents || monitor.drowsinessLevel > 50
-        ? "Drowsy"
-        : "Safe";
-    if (_tripEvents.any((e) => e.contains("Manual SOS")))
-      finalStatus = "Emergency";
-
-    final endTime = DateTime.now();
-    final avgSpeed = _speedSamples > 0 ? (_sumSpeed / _speedSamples) : 0.0;
-
-    // ✅ Get Recorded Path
-    final routePath = location.stopRecording();
-
-    await DatabaseService.instance.saveTrip(
-      duration: _formatTime(_tripDurationSeconds),
-      distance: "${(_totalDistanceTraveled / 1000).toStringAsFixed(1)} km",
-      status: finalStatus,
-      alerts: _tripEvents,
-      startTime: DateFormat('hh:mm a').format(_tripStartTime ?? endTime),
-      endTime: DateFormat('hh:mm a').format(endTime),
-      avgSpeed: "${avgSpeed.toStringAsFixed(1)} km/h",
-      maxSpeed: "${_maxSpeed.toStringAsFixed(1)} km/h",
-      routePath: routePath, // ✅ Save Path
-    );
-
+    // ✅ Immediately update UI to feel responsive and prevent hanging
     monitor.toggleMonitoring();
     setState(() {
       _tripSessionActive = false;
-      _tripDurationSeconds = 0;
-      _tripDistanceDisplay = "0.0";
-      _totalDistanceTraveled = 0.0;
     });
+
+    try {
+      _tripEvents.add("${DateTime.now().toIso8601String()}: 🛑 Trip Ended");
+      String finalStatus = _hasDangerousEvents || monitor.drowsinessLevel > 50
+          ? "Drowsy"
+          : "Safe";
+      if (_tripEvents.any((e) => e.contains("Manual SOS"))) {
+        finalStatus = "Emergency";
+      }
+
+      final endTime = DateTime.now();
+      final avgSpeed = _speedSamples > 0 ? (_sumSpeed / _speedSamples) : 0.0;
+
+      // ✅ Get Recorded Path
+      final routePath = location.stopRecording();
+
+      // Get current user ID for trip ownership
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final userId = auth.currentUser['id'].toString();
+
+      await DatabaseService.instance.saveTrip(
+        userId: userId,
+        duration: _formatTime(_tripDurationSeconds),
+        distance: "${(_totalDistanceTraveled / 1000).toStringAsFixed(1)} km",
+        status: finalStatus,
+        alerts: _tripEvents,
+        score: monitor.currentScore.toInt(),
+        startTime: DateFormat('hh:mm a').format(_tripStartTime ?? endTime),
+        endTime: DateFormat('hh:mm a').format(endTime),
+        avgSpeed: "${avgSpeed.toStringAsFixed(1)} km/h",
+        maxSpeed: "${_maxSpeed.toStringAsFixed(1)} km/h",
+        routePath: routePath,
+      );
+
+      // Process Gamification
+      await GamificationLogic.processTripForGamification(userId, {
+        'status': finalStatus,
+        'distance': "${(_totalDistanceTraveled / 1000).toStringAsFixed(1)} km",
+        'score': monitor.currentScore.toInt(),
+        'startTime': DateFormat('hh:mm a').format(_tripStartTime ?? endTime),
+      });
+
+      // Push trip to cloud in background
+      final lastId = await DatabaseService.instance.getLastInsertedTripId();
+      if (lastId != null) {
+        final trips = await DatabaseService.instance.getTrips(userId);
+        final savedTrip = trips.firstWhere(
+          (t) => t['id'] == lastId,
+          orElse: () => {},
+        );
+        if (savedTrip.isNotEmpty) {
+          SyncService.instance.pushTrip(userId, savedTrip);
+        }
+      }
+    } catch (e) {
+      debugPrint("Error ending trip: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _tripDurationSeconds = 0;
+          _tripDistanceDisplay = "0.0";
+          _totalDistanceTraveled = 0.0;
+        });
+      }
+    }
   }
 
   void _triggerSOSManual() {
@@ -359,9 +400,12 @@ class DashboardUIState extends State<DashboardUI>
                     controller: _searchController,
                     style: theme.textTheme.bodyMedium,
                     decoration: InputDecoration(
-                      hintText: "Search places (OSM)...",
-                      hintStyle: TextStyle(color: Colors.grey),
-                      prefixIcon: Icon(Icons.search, color: theme.primaryColor),
+                      hintText: AppLocalizations.of(context)!.searchPlaces,
+                      hintStyle: const TextStyle(color: Colors.grey),
+                      prefixIcon: Icon(
+                        CupertinoIcons.search,
+                        color: theme.primaryColor,
+                      ),
                       filled: true,
                       fillColor: theme.scaffoldBackgroundColor,
                       border: OutlineInputBorder(
@@ -369,7 +413,7 @@ class DashboardUIState extends State<DashboardUI>
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
-                          Icons.arrow_forward,
+                          CupertinoIcons.arrow_right,
                           color: theme.primaryColor,
                         ),
                         onPressed: () => _performSearch(
@@ -420,48 +464,58 @@ class DashboardUIState extends State<DashboardUI>
     );
   }
 
-  Map<String, dynamic> _getStatusConfig(MonitoringProvider monitor) {
+  Map<String, dynamic> _getStatusConfig(
+    MonitoringProvider monitor,
+    AppLocalizations l10n,
+  ) {
     final red = ThemeService.red;
     final orange = ThemeService.orange;
-    final green = ThemeService.Green;
+    final green = ThemeService.green;
     final blue = ThemeService.blue;
 
     if (!monitor.isMonitoring) {
       return {
         'color': blue,
-        'bgColor': blue.withOpacity(0.2),
-        'borderColor': blue.withOpacity(0.5),
-        'text': "جاهز للرحلة",
+        'bgColor': blue.withValues(alpha: 0.2),
+        'borderColor': blue.withValues(alpha: 0.5),
+        'text': l10n.statusReady,
       };
     }
 
     if (monitor.status == "ASLEEP") {
       return {
         'color': red,
-        'bgColor': red.withOpacity(0.2),
-        'borderColor': red.withOpacity(0.5),
-        'text': "خطر - توقف فوراً!",
+        'bgColor': red.withValues(alpha: 0.2),
+        'borderColor': red.withValues(alpha: 0.5),
+        'text': l10n.statusAsleep,
       };
     } else if (monitor.status == "DISTRACTED") {
       return {
         'color': orange,
-        'bgColor': orange.withOpacity(0.2),
-        'borderColor': orange.withOpacity(0.5),
-        'text': "تشتت الانتباه - ركز!",
+        'bgColor': orange.withValues(alpha: 0.2),
+        'borderColor': orange.withValues(alpha: 0.5),
+        'text': l10n.statusDistracted,
+      };
+    } else if (monitor.status == "NO_FACE") {
+      return {
+        'color': orange,
+        'bgColor': orange.withValues(alpha: 0.2),
+        'borderColor': orange.withValues(alpha: 0.5),
+        'text': l10n.statusNoFace,
       };
     } else if (monitor.status == "DROWSY") {
       return {
         'color': orange,
-        'bgColor': orange.withOpacity(0.2),
-        'borderColor': orange.withOpacity(0.5),
-        'text': "نعسان",
+        'bgColor': orange.withValues(alpha: 0.2),
+        'borderColor': orange.withValues(alpha: 0.5),
+        'text': l10n.statusDrowsy,
       };
     } else {
       return {
         'color': green,
-        'bgColor': green.withOpacity(0.2),
-        'borderColor': green.withOpacity(0.5),
-        'text': "يقظ ومستيقظ",
+        'bgColor': green.withValues(alpha: 0.2),
+        'borderColor': green.withValues(alpha: 0.5),
+        'text': l10n.statusAlert,
       };
     }
   }
@@ -471,13 +525,66 @@ class DashboardUIState extends State<DashboardUI>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+    final l10n = AppLocalizations.of(context)!;
 
     return Consumer2<MonitoringProvider, LocationProvider>(
       builder: (context, monitor, locProvider, child) {
-        final statusConfig = _getStatusConfig(monitor);
+        final statusConfig = _getStatusConfig(monitor, l10n);
         final currentLocation = locProvider.currentLocation;
         final currentSpeed = locProvider.currentSpeed;
         final currentHeading = locProvider.currentHeading;
+
+        if (_isStandbyMode) {
+          return GestureDetector(
+            onTap: () => setState(() => _isStandbyMode = false),
+            child: Container(
+              color: Colors.black,
+              width: double.infinity,
+              height: double.infinity,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    CupertinoIcons.moon_stars_fill,
+                    color: Colors.blueGrey,
+                    size: 60,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    l10n.statusAsleep == "Asleep"
+                        ? "Standby Mode"
+                        : "وضع الاستعداد",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    l10n.statusAsleep == "Asleep"
+                        ? "Tap anywhere to wake"
+                        : "اضغط للاستيقاظ",
+                    style: const TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                  if (monitor.status != "AWAKE" &&
+                      monitor.status != "SAFE" &&
+                      monitor.status != "IDLE") ...[
+                    const SizedBox(height: 40),
+                    Text(
+                      statusConfig['text'],
+                      style: TextStyle(
+                        color: statusConfig['color'],
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }
 
         return SafeArea(
           child: SingleChildScrollView(
@@ -490,23 +597,8 @@ class DashboardUIState extends State<DashboardUI>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "يقظة",
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          "نظام كشف النعاس للسائقين",
-                          style: TextStyle(color: subColor, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    Container(
+                    Column(crossAxisAlignment: CrossAxisAlignment.start),
+                    SizedBox(
                       width: 118,
                       height: 40,
                       child: Image.asset(
@@ -523,82 +615,84 @@ class DashboardUIState extends State<DashboardUI>
                     borderRadius: BorderRadius.circular(20),
                     child: Stack(
                       children: [
-                        FlutterMap(
-                          mapController: _mapController,
-                          options: MapOptions(
-                            initialCenter: currentLocation,
-                            initialZoom: 16.0,
-                            interactionOptions: const InteractionOptions(
-                              flags:
-                                  InteractiveFlag.all &
-                                  ~InteractiveFlag.doubleTapZoom,
+                        RepaintBoundary(
+                          child: FlutterMap(
+                            mapController: _mapController,
+                            options: MapOptions(
+                              initialCenter: currentLocation,
+                              initialZoom: 16.0,
+                              interactionOptions: const InteractionOptions(
+                                flags:
+                                    InteractiveFlag.all &
+                                    ~InteractiveFlag.doubleTapZoom,
+                              ),
+                              onPositionChanged: (p, g) {
+                                if (g) setState(() => _isAutoFollowing = false);
+                              },
+                              onTap: (tapPosition, point) {
+                                final now = DateTime.now();
+                                if (_lastTapTime != null &&
+                                    now.difference(_lastTapTime!) <
+                                        const Duration(milliseconds: 300)) {
+                                  startNavigation(point);
+                                  _lastTapTime = null;
+                                } else {
+                                  _lastTapTime = now;
+                                }
+                              },
                             ),
-                            onPositionChanged: (p, g) {
-                              if (g) setState(() => _isAutoFollowing = false);
-                            },
-                            onTap: (tapPosition, point) {
-                              final now = DateTime.now();
-                              if (_lastTapTime != null &&
-                                  now.difference(_lastTapTime!) <
-                                      const Duration(milliseconds: 300)) {
-                                startNavigation(point);
-                                _lastTapTime = null;
-                              } else {
-                                _lastTapTime = now;
-                              }
-                            },
-                          ),
-                          children: [
-                            TileLayer(
-                              urlTemplate:
-                                  'https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
-                              userAgentPackageName: 'com.example.yaqdah_app',
-                            ),
-                            if (_routePoints.isNotEmpty)
-                              PolylineLayer(
-                                polylines: [
-                                  Polyline(
-                                    points: _routePoints,
-                                    strokeWidth: 4.0,
-                                    color: Colors.blueAccent,
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxAccessToken',
+                                userAgentPackageName: 'com.example.yaqdah_app',
+                              ),
+                              if (_routePoints.isNotEmpty)
+                                PolylineLayer(
+                                  polylines: [
+                                    Polyline(
+                                      points: _routePoints,
+                                      strokeWidth: 4.0,
+                                      color: Colors.blueAccent,
+                                    ),
+                                  ],
+                                ),
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    point: currentLocation,
+                                    width: 40,
+                                    height: 40,
+                                    child: Transform.rotate(
+                                      angle: currentHeading * (math.pi / 180),
+                                      child: const Icon(
+                                        CupertinoIcons.location_north_fill,
+                                        color: Colors.blueAccent,
+                                        size: 32,
+                                      ),
+                                    ),
                                   ),
+                                  if (_destination != null)
+                                    Marker(
+                                      point: _destination!,
+                                      width: 35,
+                                      height: 35,
+                                      child: const Icon(
+                                        CupertinoIcons.location_solid,
+                                        color: Colors.red,
+                                        size: 30,
+                                      ),
+                                    ),
                                 ],
                               ),
-                            MarkerLayer(
-                              markers: [
-                                Marker(
-                                  point: currentLocation,
-                                  width: 40,
-                                  height: 40,
-                                  child: Transform.rotate(
-                                    angle: currentHeading * (math.pi / 180),
-                                    child: const Icon(
-                                      Icons.navigation,
-                                      color: Colors.blueAccent,
-                                      size: 32,
-                                    ),
-                                  ),
-                                ),
-                                if (_destination != null)
-                                  Marker(
-                                    point: _destination!,
-                                    width: 35,
-                                    height: 35,
-                                    child: const Icon(
-                                      Icons.location_on,
-                                      color: Colors.red,
-                                      size: 30,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                         Positioned(
                           top: 10,
                           left: 10,
                           child: _smallMapButton(
-                            icon: Icons.search,
+                            icon: CupertinoIcons.search,
                             onTap: _openSearchSheet,
                           ),
                         ),
@@ -606,7 +700,7 @@ class DashboardUIState extends State<DashboardUI>
                           bottom: 10,
                           right: 10,
                           child: _smallMapButton(
-                            icon: Icons.my_location,
+                            icon: CupertinoIcons.location_fill,
                             onTap: () {
                               setState(() => _isAutoFollowing = true);
                               _mapController.move(currentLocation, 18.0);
@@ -619,7 +713,7 @@ class DashboardUIState extends State<DashboardUI>
                             top: 10,
                             right: 10,
                             child: _smallMapButton(
-                              icon: Icons.close,
+                              icon: CupertinoIcons.xmark,
                               onTap: _clearNavigation,
                               isDanger: true,
                             ),
@@ -657,7 +751,7 @@ class DashboardUIState extends State<DashboardUI>
                               ),
                             ),
                             child: Icon(
-                              Icons.remove_red_eye,
+                              CupertinoIcons.eye_fill,
                               color: statusConfig['color'],
                               size: 24,
                             ),
@@ -668,7 +762,7 @@ class DashboardUIState extends State<DashboardUI>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  "حالة السائق",
+                                  l10n.driverStatus,
                                   style: TextStyle(
                                     color: subColor,
                                     fontSize: 11,
@@ -701,7 +795,7 @@ class DashboardUIState extends State<DashboardUI>
                                 ),
                               ),
                               Text(
-                                "مستوى النعاس",
+                                l10n.drowsinessLevel,
                                 style: TextStyle(fontSize: 10, color: subColor),
                               ),
                             ],
@@ -720,8 +814,8 @@ class DashboardUIState extends State<DashboardUI>
                     children: [
                       Expanded(
                         child: _buildGlassButton(
-                          label: "طوارئ",
-                          icon: Icons.phone,
+                          label: l10n.btnEmergency,
+                          icon: CupertinoIcons.phone_fill,
                           color: ThemeService.red,
                           onTap: _triggerSOSManual,
                         ),
@@ -729,10 +823,12 @@ class DashboardUIState extends State<DashboardUI>
                       const SizedBox(width: 10),
                       Expanded(
                         child: _buildGlassButton(
-                          label: monitor.isMonitoring ? "إيقاف" : "بدء",
+                          label: monitor.isMonitoring
+                              ? l10n.btnStop
+                              : l10n.btnStart,
                           icon: monitor.isMonitoring
-                              ? Icons.stop_rounded
-                              : Icons.play_arrow_rounded,
+                              ? CupertinoIcons.stop_fill
+                              : CupertinoIcons.play_fill,
                           color: monitor.isMonitoring
                               ? ThemeService.orange
                               : theme.primaryColor,
@@ -742,11 +838,39 @@ class DashboardUIState extends State<DashboardUI>
                       const SizedBox(width: 10),
                       Expanded(
                         child: _buildGlassButton(
-                          label: "كاميرا",
+                          label: l10n.btnCamera,
                           subLabel: widget.currentCameraName,
-                          icon: Icons.cameraswitch,
-                          color: ThemeService.purple,
+                          icon: CupertinoIcons.camera_rotate_fill,
+                          color: isDark
+                              ? ThemeService.green
+                              : ThemeService.purple,
                           onTap: widget.onSwitchCamera,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildGlassButton(
+                          label: l10n.statusAsleep == "Asleep"
+                              ? "Standby"
+                              : "توفير",
+                          icon: CupertinoIcons.moon_fill,
+                          color: Colors.blueGrey,
+                          onTap: () {
+                            if (monitor.isMonitoring) {
+                              setState(() => _isStandbyMode = true);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    l10n.statusAsleep == "Asleep"
+                                        ? "Start a trip first"
+                                        : "ابدأ الرحلة أولاً",
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          },
                         ),
                       ),
                     ],
@@ -761,8 +885,8 @@ class DashboardUIState extends State<DashboardUI>
                       children: [
                         Expanded(
                           child: _buildDarkStatCard(
-                            Icons.access_time,
-                            "المدة",
+                            CupertinoIcons.clock,
+                            l10n.statDuration,
                             _formatTime(_tripDurationSeconds),
                             theme.primaryColor,
                             unit: "",
@@ -771,11 +895,11 @@ class DashboardUIState extends State<DashboardUI>
                         const SizedBox(width: 10),
                         Expanded(
                           child: _buildDarkStatCard(
-                            Icons.location_on,
-                            "المسافة",
+                            CupertinoIcons.location_solid,
+                            l10n.statDistance,
                             _tripDistanceDisplay,
                             ThemeService.blue,
-                            unit: "كم",
+                            unit: l10n.kmUnit,
                           ),
                         ),
                       ],
@@ -785,25 +909,26 @@ class DashboardUIState extends State<DashboardUI>
                       children: [
                         Expanded(
                           child: _buildDarkStatCard(
-                            Icons.speed,
-                            "السرعة",
+                            CupertinoIcons.speedometer,
+                            l10n.statSpeed,
                             "${currentSpeed.toInt()}",
-                            ThemeService.purple,
-                            unit: "كم/س",
+                            isDark ? ThemeService.green : ThemeService.purple,
+                            unit: l10n.kmhUnit,
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _buildDarkStatCard(
-                            Icons.navigation,
-                            "الوصول",
+                            CupertinoIcons.location_north_fill,
+                            l10n.statHeading,
                             _etaDisplay,
-                            ThemeService.orange,
+                            ThemeService.blue,
                             unit: "",
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 10),
                   ],
                 ),
               ],
@@ -860,9 +985,11 @@ class DashboardUIState extends State<DashboardUI>
           onTap: onTap,
           child: Container(
             decoration: BoxDecoration(
-              color: isDark ? color.withOpacity(0.15) : theme.cardColor,
+              color: isDark ? color.withValues(alpha: 0.15) : theme.cardColor,
               border: Border.all(
-                color: isDark ? color.withOpacity(0.4) : theme.dividerColor,
+                color: isDark
+                    ? color.withValues(alpha: 0.4)
+                    : theme.dividerColor,
               ),
               borderRadius: BorderRadius.circular(16),
             ),
@@ -883,7 +1010,9 @@ class DashboardUIState extends State<DashboardUI>
                   Text(
                     subLabel,
                     style: TextStyle(
-                      color: isDark ? color.withOpacity(0.7) : Colors.grey,
+                      color: isDark
+                          ? color.withValues(alpha: 0.7)
+                          : Colors.grey,
                       fontSize: 9,
                     ),
                     maxLines: 1,

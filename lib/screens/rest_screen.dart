@@ -1,13 +1,13 @@
-// ignore_for_file: deprecated_member_use
-
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import '../l10n/app_localizations.dart';
 import '../services/places_service.dart';
 import '../services/theme_service.dart';
 
 class RestScreen extends StatefulWidget {
   final Function(LatLng) onPlaceSelected;
-  final LatLng currentLocation; // ✅ Fixed: Expects a value, not a function
+  final LatLng currentLocation;
 
   const RestScreen({
     super.key,
@@ -27,13 +27,6 @@ class _RestScreenState extends State<RestScreen> {
   LatLng? _lastFetchLocation;
   final Distance _distanceCalculator = const Distance();
 
-  final List<Map<String, dynamic>> _categories = [
-    {'id': 'all', 'label': 'الكل', 'icon': Icons.map},
-    {'id': 'hotel', 'label': 'فنادق', 'icon': Icons.hotel},
-    {'id': 'cafe', 'label': 'مقاهي', 'icon': Icons.coffee},
-    {'id': 'mosque', 'label': 'مساجد', 'icon': Icons.mosque},
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -44,7 +37,6 @@ class _RestScreenState extends State<RestScreen> {
   void didUpdateWidget(RestScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // ✅ Logic: Check if user moved significantly (> 2km) to refresh places
     double distance = 0.0;
     if (_lastFetchLocation != null) {
       distance = _distanceCalculator.as(
@@ -54,9 +46,7 @@ class _RestScreenState extends State<RestScreen> {
       );
     }
 
-    bool significantMove = distance > 2000;
-
-    if (significantMove) {
+    if (distance > 2000) {
       _fetchPlaces();
     }
   }
@@ -65,9 +55,9 @@ class _RestScreenState extends State<RestScreen> {
     if (_isLoading) return;
     if (mounted) setState(() => _isLoading = true);
 
-    int searchRadius = 5000; // Default 5km
+    int searchRadius = 5000;
     if (_activeCategory == 'hotel' || _activeCategory == 'all') {
-      searchRadius = 20000; // 20km for hotels
+      searchRadius = 20000;
     }
 
     try {
@@ -93,23 +83,46 @@ class _RestScreenState extends State<RestScreen> {
   Map<String, dynamic> _getStyleForType(String type) {
     switch (type) {
       case 'hotel':
-        return {'icon': Icons.hotel, 'color': ThemeService.purple};
+        return {
+          'icon': Icons.hotel,
+          'color': ThemeService.purple,
+        };
       case 'cafe':
-        return {'icon': Icons.coffee, 'color': ThemeService.orange};
+        return {
+          'icon': Icons.local_cafe,
+          'color': ThemeService.orange,
+        };
       case 'mosque':
         return {'icon': Icons.mosque, 'color': ThemeService.blue};
       default:
-        return {'icon': Icons.place, 'color': Colors.grey};
+        return {'icon': CupertinoIcons.map_pin, 'color': Colors.grey};
     }
   }
 
+  List<Map<String, dynamic>> _getCategories(AppLocalizations l10n) => [
+    {'id': 'all', 'label': l10n.catAll, 'icon': CupertinoIcons.map},
+    {
+      'id': 'hotel',
+      'label': l10n.catHotels,
+      'icon': Icons.hotel,
+    },
+    {'id': 'cafe', 'label': l10n.catCafes, 'icon': Icons.local_cafe},
+    {
+      'id': 'mosque',
+      'label': l10n.catMosques,
+      'icon': Icons.mosque,
+    },
+  ];
+
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.textTheme.bodyMedium!.color!;
     final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
     final green = theme.primaryColor;
+    final categories = _getCategories(l10n);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -119,22 +132,13 @@ class _RestScreenState extends State<RestScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "استراحات قريبة",
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    "أماكن حقيقية حولك",
-                    style: TextStyle(color: subColor, fontSize: 14),
-                  ),
-                ],
+              child: Text(
+                l10n.restScreenTitle,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
 
@@ -143,15 +147,15 @@ class _RestScreenState extends State<RestScreen> {
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _categories.length,
+                itemCount: categories.length,
                 itemBuilder: (context, index) {
-                  final cat = _categories[index];
+                  final cat = categories[index];
                   final isActive = _activeCategory == cat['id'];
                   return Padding(
                     padding: const EdgeInsets.only(left: 8.0),
                     child: GestureDetector(
                       onTap: () {
-                        setState(() => _activeCategory = cat['id']);
+                        setState(() => _activeCategory = cat['id'] as String);
                         _fetchPlaces();
                       },
                       child: Container(
@@ -169,13 +173,13 @@ class _RestScreenState extends State<RestScreen> {
                         child: Row(
                           children: [
                             Icon(
-                              cat['icon'],
+                              cat['icon'] as IconData,
                               size: 16,
                               color: isActive ? Colors.black : Colors.grey,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              cat['label'],
+                              cat['label'] as String,
                               style: TextStyle(
                                 color: isActive ? Colors.black : Colors.grey,
                                 fontWeight: FontWeight.bold,
@@ -197,13 +201,13 @@ class _RestScreenState extends State<RestScreen> {
               child: _isLoading
                   ? Center(child: CircularProgressIndicator(color: green))
                   : _places.isEmpty
-                  ? _buildEmptyState(theme)
+                  ? _buildEmptyState(theme, l10n)
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: _places.length,
                       itemBuilder: (context, index) {
                         final place = _places[index];
-                        return _buildPlaceCard(place, theme);
+                        return _buildPlaceCard(place, theme, l10n, subColor);
                       },
                     ),
             ),
@@ -213,14 +217,16 @@ class _RestScreenState extends State<RestScreen> {
     );
   }
 
-  Widget _buildPlaceCard(Map<String, dynamic> place, ThemeData theme) {
+  Widget _buildPlaceCard(
+    Map<String, dynamic> place,
+    ThemeData theme,
+    AppLocalizations l10n,
+    Color subColor,
+  ) {
     final style = _getStyleForType(place['type']);
-    final Color color = style['color'];
-    final IconData icon = style['icon'];
+    final Color color = style['color'] as Color;
+    final IconData icon = style['icon'] as IconData;
     final textColor = theme.textTheme.bodyMedium!.color!;
-    final subColor = theme.brightness == Brightness.dark
-        ? Colors.grey[400]!
-        : Colors.grey[600]!;
     final green = theme.primaryColor;
 
     return Container(
@@ -237,9 +243,9 @@ class _RestScreenState extends State<RestScreen> {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: color.withOpacity(0.3)),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
             ),
             child: Icon(icon, color: color, size: 24),
           ),
@@ -259,7 +265,11 @@ class _RestScreenState extends State<RestScreen> {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                    const Icon(
+                      CupertinoIcons.location_solid,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
@@ -294,7 +304,7 @@ class _RestScreenState extends State<RestScreen> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        "${place['distance']} كم",
+                        "${place['distance']} ${l10n.distanceKm}",
                         style: TextStyle(
                           color: green,
                           fontSize: 12,
@@ -313,11 +323,15 @@ class _RestScreenState extends State<RestScreen> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: green.withOpacity(0.2),
+                color: green.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: green.withOpacity(0.5)),
+                border: Border.all(color: green.withValues(alpha: 0.5)),
               ),
-              child: Icon(Icons.navigation, color: green, size: 20),
+              child: Icon(
+                CupertinoIcons.arrow_right_circle_fill,
+                color: green,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -325,25 +339,22 @@ class _RestScreenState extends State<RestScreen> {
     );
   }
 
-  Widget _buildEmptyState(ThemeData theme) {
+  Widget _buildEmptyState(ThemeData theme, AppLocalizations l10n) {
     final green = theme.primaryColor;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.map_outlined, size: 48, color: Colors.grey),
+          const Icon(CupertinoIcons.map, size: 48, color: Colors.grey),
           const SizedBox(height: 16),
-          Text(
-            "لا توجد أماكن قريبة (${_activeCategory})",
-            style: const TextStyle(color: Colors.grey),
-          ),
+          Text(l10n.restEmptyState, style: const TextStyle(color: Colors.grey)),
           const SizedBox(height: 10),
           TextButton(
             onPressed: () {
               setState(() => _lastFetchLocation = null);
               _fetchPlaces();
             },
-            child: Text("حاول مرة أخرى", style: TextStyle(color: green)),
+            child: Text(l10n.restRetry, style: TextStyle(color: green)),
           ),
         ],
       ),
