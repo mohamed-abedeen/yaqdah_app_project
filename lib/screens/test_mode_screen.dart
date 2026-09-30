@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../services/face_monitoring_service.dart';
 import '../widgets/face_painter.dart';
-import '../services/theme_service.dart';
+import '../l10n/app_localizations.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
 
 class TestModeScreen extends StatefulWidget {
   const TestModeScreen({super.key});
@@ -15,11 +16,28 @@ class TestModeScreen extends StatefulWidget {
 }
 
 class _TestModeScreenState extends State<TestModeScreen> {
+  // The lab is always drawn over the camera, so it uses the dark tokens.
+  static final _ok = AppColors.dark.ok;
+  static final _warn = AppColors.dark.warn;
+  static final _danger = AppColors.dark.danger;
+
   CameraController? _controller;
-  FaceDetector? _faceDetector;
+  bool _cameraFailed = false;
+
+  // Same settings as the drive monitor, plus contours for the overlay.
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableClassification: true,
+      enableContours: true,
+      performanceMode: FaceDetectorMode.fast,
+      minFaceSize: 0.15,
+    ),
+  );
   bool _isProcessing = false;
+  DateTime _lastFrame = DateTime.fromMillisecondsSinceEpoch(0);
   List<Face> _faces = [];
   CameraImage? _currentImage;
+  InputImageRotation _rotation = InputImageRotation.rotation270deg;
 
   double _leftEyeProb = 0.0;
   double _rightEyeProb = 0.0;
@@ -33,49 +51,60 @@ class _TestModeScreenState extends State<TestModeScreen> {
     _initializeCamera();
   }
 
-  void _initializeCamera() async {
-    final cameras = await availableCameras();
-    final frontCam = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.front,
-      orElse: () => cameras.first,
-    );
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) throw CameraException('noCamera', 'No camera');
+      final frontCam = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
 
-    _controller = CameraController(
-      frontCam,
-      ResolutionPreset.low,
-      enableAudio: false,
-      imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup.nv21
-          : ImageFormatGroup.bgra8888,
-    );
-
-    _faceDetector = FaceDetector(
-      options: FaceDetectorOptions(
-        enableClassification: true,
-        enableLandmarks: true,
-        enableTracking: true,
-        enableContours: true,
-        performanceMode: FaceDetectorMode.accurate,
-      ),
-    );
-
-    await _controller!.initialize();
-    if (mounted) {
+      final controller = CameraController(
+        frontCam,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: Platform.isAndroid
+            ? ImageFormatGroup.nv21
+            : ImageFormatGroup.bgra8888,
+      );
+      _controller = controller;
+      await controller.initialize();
+      if (!mounted) return;
       setState(() {});
-      _controller!.startImageStream(_processImage);
+      await controller.startImageStream(_processImage);
+    } catch (e) {
+      debugPrint("Test lab camera error: $e");
+      if (mounted) setState(() => _cameraFailed = true);
     }
   }
 
   void _processImage(CameraImage image) async {
-    if (_isProcessing) return;
+    final controller = _controller;
+    if (_isProcessing || controller == null) return;
+    // About ten checks a second is plenty to watch the numbers.
+    final now = DateTime.now();
+    if (now.difference(_lastFrame).inMilliseconds < 100) return;
+    _lastFrame = now;
     _isProcessing = true;
     _currentImage = image;
 
     try {
-      final inputImage = _inputImageFromCameraImage(image);
+      final orientation = controller.value.deviceOrientation;
+      final inputImage = FaceMonitoringService.inputImageFromCameraImage(
+        image,
+        controller.description,
+        orientation,
+      );
       if (inputImage == null) return;
+      _rotation =
+          FaceMonitoringService.rotationFor(
+            controller.description,
+            orientation,
+          ) ??
+          _rotation;
 
-      final faces = await _faceDetector!.processImage(inputImage);
+      final faces = await _faceDetector.processImage(inputImage);
 
       if (mounted) {
         setState(() {
@@ -109,46 +138,37 @@ class _TestModeScreenState extends State<TestModeScreen> {
     }
   }
 
-  InputImage? _inputImageFromCameraImage(CameraImage image) {
-    // ignore: unused_local_variable
-    final sensorOrientation = _controller!.description.sensorOrientation;
-    InputImageRotation? rotation;
-    if (Platform.isAndroid) {
-      rotation = InputImageRotation.rotation270deg;
-    } else {
-      rotation = InputImageRotation.rotation0deg;
-    }
-
-    final format =
-        InputImageFormatValue.fromRawValue(image.format.raw) ??
-        InputImageFormat.nv21;
-
-    final WriteBuffer allBytes = WriteBuffer();
-    for (final Plane plane in image.planes) {
-      allBytes.putUint8List(plane.bytes);
-    }
-    final bytes = allBytes.done().buffer.asUint8List();
-
-    final metadata = InputImageMetadata(
-      size: Size(image.width.toDouble(), image.height.toDouble()),
-      rotation: rotation,
-      format: format,
-      bytesPerRow: image.planes.first.bytesPerRow,
-    );
-
-    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
-  }
-
   @override
   void dispose() {
-    _controller?.stopImageStream();
-    _controller?.dispose();
-    _faceDetector?.close();
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      if (controller.value.isStreamingImages) {
+        controller.stopImageStream().catchError((Object _) {});
+      }
+      controller.dispose();
+    }
+    _faceDetector.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_cameraFailed) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+        ),
+        body: Center(
+          child: Text(
+            AppLocalizations.of(context)!.checkNoCamera,
+            style: AppFonts.body(context, 16, color: Colors.white),
+          ),
+        ),
+      );
+    }
     if (_controller == null || !_controller!.value.isInitialized) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -159,11 +179,17 @@ class _TestModeScreenState extends State<TestModeScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text(
-          "Detection Lab",
-          style: TextStyle(color: Colors.white),
+        title: Text(
+          AppLocalizations.of(context)!.testLab,
+          style: AppFonts.body(
+            context,
+            17,
+            weight: FontWeight.w700,
+            color: Colors.white,
+          ),
         ),
         backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Stack(
@@ -178,8 +204,8 @@ class _TestModeScreenState extends State<TestModeScreen> {
                   _currentImage!.width.toDouble(),
                   _currentImage!.height.toDouble(),
                 ),
-                rotation: InputImageRotation.rotation270deg,
-                cameraLensDirection: CameraLensDirection.front,
+                rotation: _rotation,
+                cameraLensDirection: _controller!.description.lensDirection,
               ),
             ),
           Positioned(
@@ -189,20 +215,16 @@ class _TestModeScreenState extends State<TestModeScreen> {
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
+                color: AppColors.dark.surface.withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: ThemeService.green),
+                border: Border.all(color: AppColors.dark.line),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _row(
-                    "STATUS",
-                    _status,
-                    _status == "ACTIVE" ? ThemeService.green : ThemeService.red,
-                  ),
-                  const Divider(color: Colors.grey),
+                  _row("STATUS", _status, _status == "ACTIVE" ? _ok : _danger),
+                  Divider(color: AppColors.dark.line),
                   _row(
                     "Left Eye",
                     "${(_leftEyeProb * 100).toInt()}%",
@@ -217,12 +239,12 @@ class _TestModeScreenState extends State<TestModeScreen> {
                   _row(
                     "Head Yaw",
                     "${_headYaw.toInt()}°",
-                    _headYaw.abs() > 25 ? ThemeService.orange : Colors.white,
+                    _headYaw.abs() > 25 ? _warn : Colors.white,
                   ),
                   _row(
                     "Head Pitch",
                     "${_headPitch.toInt()}°",
-                    _headPitch.abs() > 20 ? ThemeService.orange : Colors.white,
+                    _headPitch.abs() > 20 ? _warn : Colors.white,
                   ),
                 ],
               ),
@@ -241,17 +263,20 @@ class _TestModeScreenState extends State<TestModeScreen> {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.grey,
-              fontWeight: FontWeight.bold,
+            style: AppFonts.body(
+              context,
+              14,
+              weight: FontWeight.w600,
+              color: AppColors.dark.subtext,
             ),
           ),
           Text(
             value,
-            style: TextStyle(
+            style: AppFonts.display(
+              context,
+              16,
+              weight: FontWeight.w600,
               color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
             ),
           ),
         ],

@@ -1,13 +1,15 @@
 import 'package:camera/camera.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
-import 'dart:ui';
 import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
 import '../providers/monitoring_provider.dart';
-import '../providers/location_provider.dart';
+import '../services/database_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
+import '../widgets/common/app_icon.dart';
 import 'rest_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
@@ -28,7 +30,6 @@ class HomeScreen extends StatelessWidget {
       builder: (context, auth, _) {
         if (auth.isLoading) {
           return const Scaffold(
-            backgroundColor: Color(0xFF0F172A),
             body: Center(child: CircularProgressIndicator()),
           );
         }
@@ -55,16 +56,25 @@ class MainLayout extends StatefulWidget {
 }
 
 class _MainLayoutState extends State<MainLayout> {
-  int _currentIndex = 0;
+  static const _driveTab = 0;
+  static const _reportsTab = 1;
+  static const _restTab = 2;
+  static const _accountTab = 3;
+
+  int _currentIndex = _driveTab;
+
+  /// Tabs are built the first time they're opened, so e.g. the Rest tab
+  /// doesn't search for places at launch.
+  final Set<int> _openedTabs = {_driveTab};
   final GlobalKey<CameraFeedState> _cameraKey = GlobalKey();
   final GlobalKey<DashboardUIState> _dashboardKey = GlobalKey();
 
-  String _currentCameraName = "Camera";
+  final ValueNotifier<CameraController?> _cameraController = ValueNotifier(
+    null,
+  );
+  final ValueNotifier<bool?> _faceVisible = ValueNotifier(null);
+  CameraLensDirection? _lensDirection;
   bool _isCameraReady = false;
-
-  // Draggable Mic Position
-  double _micLeft = 20.0;
-  double _micTop = 500.0;
 
   @override
   void initState() {
@@ -85,249 +95,298 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
+  @override
+  void dispose() {
+    _cameraController.dispose();
+    _faceVisible.dispose();
+    super.dispose();
+  }
+
   void _updateCameraName(int index) {
     if (widget.cameras.isEmpty) return;
-    final cam = widget.cameras[index];
-    setState(() {
-      if (cam.lensDirection == CameraLensDirection.front) {
-        _currentCameraName = "Front Cam";
-      } else if (cam.lensDirection == CameraLensDirection.back) {
-        _currentCameraName = "Back Cam ${index + 1}";
-      } else {
-        _currentCameraName = "Ext Cam";
-      }
+    _faceVisible.value = null;
+    setState(() => _lensDirection = widget.cameras[index].lensDirection);
+  }
+
+  void _handlePlaceSelected(LatLng destination, String name) {
+    _selectTab(_driveTab);
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _dashboardKey.currentState?.startNavigation(destination, name: name);
     });
   }
 
-  void _handlePlaceSelected(LatLng destination) {
-    setState(() => _currentIndex = 0);
-    Future.delayed(const Duration(milliseconds: 100), () {
-      _dashboardKey.currentState?.startNavigation(destination);
+  void _selectTab(int index) {
+    // Reports reads from the database; refresh it when it comes back into
+    // view (the first time, it loads as it's built).
+    if (index == _reportsTab &&
+        _currentIndex != _reportsTab &&
+        _openedTabs.contains(_reportsTab)) {
+      DatabaseService.instance.notifyTripsChanged();
+    }
+    setState(() {
+      _currentIndex = index;
+      _openedTabs.add(index);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
-    final monitoringProvider = Provider.of<MonitoringProvider>(context);
+    final isMonitoring = context.select<MonitoringProvider, bool>(
+      (m) => m.isMonitoring,
+    );
     final authProvider = Provider.of<AuthProvider>(context);
-    final locationProvider = Provider.of<LocationProvider>(context);
+    final onDriveTab = _currentIndex == _driveTab;
 
     final List<Widget> screens = [
       Stack(
         children: [
           if (_isCameraReady)
-            Offstage(
-              offstage: true,
-              child: CameraFeed(
-                key: _cameraKey,
-                cameras: widget.cameras,
-                isMonitoring: monitoringProvider.isMonitoring,
-                showFeed: true,
-                onStatusChange: (status, metrics) =>
-                    monitoringProvider.handleStatusChange(status, metrics),
-                onCameraChanged: _updateCameraName,
-              ),
+            CameraFeed(
+              key: _cameraKey,
+              cameras: widget.cameras,
+              // The camera only runs for a trip or the readiness check.
+              enabled: isMonitoring || onDriveTab,
+              // The preview thumbnail is only shown before a trip.
+              showPreview: !isMonitoring && onDriveTab,
+              isMonitoring: isMonitoring,
+              detectPresence: !isMonitoring && onDriveTab,
+              onStatusChange: (status, metrics) => context
+                  .read<MonitoringProvider>()
+                  .handleStatusChange(status, metrics),
+              onCameraChanged: _updateCameraName,
+              onControllerChanged: (c) {
+                _cameraController.value = c;
+                if (c == null) _faceVisible.value = null;
+              },
+              onFacePresenceChanged: (visible) => _faceVisible.value = visible,
             ),
           DashboardUI(
             key: _dashboardKey,
             onSwitchCamera: () => _cameraKey.currentState?.switchCamera(),
-            currentCameraName: _currentCameraName,
-          ),
-          Positioned(
-            left: _micLeft,
-            top: _micTop,
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                setState(() {
-                  _micLeft += details.delta.dx;
-                  _micTop += details.delta.dy;
-                });
-              },
-              onPanEnd: (details) {
-                final screenWidth = MediaQuery.of(context).size.width;
-                setState(() {
-                  if (_micLeft + 28 < screenWidth / 2) {
-                    _micLeft = 20; // Snap to left
-                  } else {
-                    _micLeft = screenWidth - 76; // Snap to right
-                  }
-                });
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: monitoringProvider.isListening
-                      ? [
-                          BoxShadow(
-                            color: Colors.blueAccent.withValues(alpha: 0.6),
-                            blurRadius: 20,
-                            spreadRadius: 8,
-                          ),
-                          BoxShadow(
-                            color: Colors.blue.withValues(alpha: 0.4),
-                            blurRadius: 40,
-                            spreadRadius: 16,
-                          ),
-                        ]
-                      : [],
-                ),
-                child: FloatingActionButton(
-                  heroTag: "mic",
-                  backgroundColor: monitoringProvider.isListening
-                      ? Colors.red
-                      : theme.primaryColor,
-                  onPressed: monitoringProvider.toggleListening,
-                  child: Icon(
-                    monitoringProvider.isListening
-                        ? CupertinoIcons.mic_slash_fill
-                        : CupertinoIcons.mic_fill,
-                  ),
-                ),
-              ),
-            ),
+            hasCamera: widget.cameras.isNotEmpty,
+            lensDirection: _lensDirection,
+            cameraController: _cameraController,
+            faceVisible: _faceVisible,
+            onOpenAccount: () => _selectTab(_accountTab),
           ),
         ],
       ),
-      const ReportsScreen(),
-      RestScreen(
-        onPlaceSelected: _handlePlaceSelected,
-        currentLocation: locationProvider.currentLocation,
-      ),
-      SettingsScreen(
-        onLogout: authProvider.logout,
-        currentUser: authProvider.currentUser,
-        onUpdateUser: authProvider.updateUser,
-      ),
+      if (_openedTabs.contains(_reportsTab))
+        const ReportsScreen()
+      else
+        const SizedBox.shrink(),
+      if (_openedTabs.contains(_restTab))
+        RestScreen(
+          onPlaceSelected: _handlePlaceSelected,
+          active: _currentIndex == _restTab,
+        )
+      else
+        const SizedBox.shrink(),
+      if (_openedTabs.contains(_accountTab))
+        SettingsScreen(
+          onLogout: authProvider.logout,
+          currentUser: authProvider.currentUser,
+        )
+      else
+        const SizedBox.shrink(),
     ];
 
-    final navBarColor = theme.cardColor.withValues(alpha: isDark ? 0.8 : 0.95);
-    final navBarBorder = theme.dividerColor;
-
-    Color getDynamicBgColor() {
-      if (!monitoringProvider.isMonitoring) {
-        return theme.scaffoldBackgroundColor;
-      }
-      switch (monitoringProvider.status) {
-        case "DROWSY":
-          return Colors.orange.withValues(alpha: isDark ? 0.15 : 0.1);
-        case "DISTRACTED":
-          return Colors.amber.withValues(alpha: isDark ? 0.15 : 0.1);
-        case "ASLEEP":
-          return Colors.red.withValues(alpha: isDark ? 0.3 : 0.2);
-        default:
-          return theme.scaffoldBackgroundColor;
-      }
-    }
-
     return Scaffold(
-      extendBody: true,
-      backgroundColor: Colors.transparent,
-      body: AnimatedContainer(
-        duration: const Duration(milliseconds: 800),
-        decoration: BoxDecoration(color: getDynamicBgColor()),
-        child: ValueListenableBuilder<bool>(
-          valueListenable: ConnectivityService.instance.isConnectedNotifier,
-          builder: (context, isConnected, child) {
-            return Column(
-              children: [
-                if (!isConnected)
-                  Container(
-                    width: double.infinity,
-                    color: Colors.redAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Text(
-                      l10n.offlineBanner,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                Expanded(
+      body: ValueListenableBuilder<bool>(
+        valueListenable: ConnectivityService.instance.isConnectedNotifier,
+        builder: (context, isConnected, child) {
+          return Column(
+            children: [
+              if (!isConnected) _OfflineBanner(label: l10n.offlineBanner),
+              Expanded(
+                child: MediaQuery.removePadding(
+                  context: context,
+                  removeTop: !isConnected,
                   child: IndexedStack(index: _currentIndex, children: screens),
                 ),
-              ],
-            );
-          },
-        ),
+              ),
+            ],
+          );
+        },
       ),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              height: 70,
-              decoration: BoxDecoration(
-                color: navBarColor,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: navBarBorder),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _navItem(CupertinoIcons.house_fill, l10n.navHome, 0),
-                  _navItem(CupertinoIcons.doc_text, l10n.navReports, 1),
-                  _navItem(CupertinoIcons.bed_double_fill, l10n.navRest, 2),
-                  _navItem(CupertinoIcons.person_fill, l10n.navAccount, 3),
-                ],
-              ),
-            ),
+      // The nav slides away while a trip is running.
+      bottomNavigationBar: TweenAnimationBuilder<double>(
+        tween: Tween(end: isMonitoring ? 0 : 1),
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        builder: (context, visible, child) => ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: visible,
+            child: child,
           ),
+        ),
+        child: _BottomNav(
+          currentIndex: _currentIndex,
+          onSelect: _selectTab,
+          items: [
+            _NavItem(Symbols.directions_car_rounded, l10n.navDrive),
+            _NavItem(Symbols.insights_rounded, l10n.navReports),
+            _NavItem(Symbols.local_cafe_rounded, l10n.navRest),
+            _NavItem(Symbols.person_rounded, l10n.navAccount),
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _navItem(IconData icon, String label, int index) {
-    bool isSelected = _currentIndex == index;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+class _NavItem {
+  const _NavItem(this.icon, this.label);
 
-    final Color selectedColor = isDark
-        ? const Color.fromARGB(255, 242, 216, 76)
-        : const Color.fromRGBO(91, 46, 235, 1);
+  final IconData icon;
+  final String label;
+}
 
-    final Color unselectedColor = isDark
-        ? const Color.fromRGBO(237, 170, 62, 1)
-        : const Color.fromRGBO(52, 19, 163, 1);
+/// Flush bottom bar; labels always visible.
+class _BottomNav extends StatelessWidget {
+  const _BottomNav({
+    required this.currentIndex,
+    required this.onSelect,
+    required this.items,
+  });
 
-    return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? selectedColor.withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
+  final List<_NavItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        8,
+        10,
+        8,
+        bottomInset > 0 ? bottomInset : 12,
+      ),
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border(top: BorderSide(color: c.line)),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < items.length; i++)
+            Expanded(
+              child: _NavButton(
+                item: items[i],
+                selected: i == currentIndex,
+                onTap: () => onSelect(i),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  const _NavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _NavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final color = selected ? c.primary : c.subtext;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: item.label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: isSelected ? selectedColor : unselectedColor,
-              size: 24,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              decoration: BoxDecoration(
+                color: selected
+                    ? c.primarySoft
+                    : c.primarySoft.withValues(alpha: 0),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: AppIcon(
+                item.icon,
+                size: 24,
+                color: color,
+                filled: selected,
+              ),
             ),
-            if (isSelected)
-              Text(
-                label,
-                style: TextStyle(
-                  color: selectedColor,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+            const SizedBox(height: 4),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppFonts.body(
+                context,
+                12,
+                weight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return ColoredBox(
+      color: c.danger,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const AppIcon(
+                Symbols.wifi_off_rounded,
+                size: 16,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: AppFonts.body(
+                    context,
+                    13,
+                    weight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );

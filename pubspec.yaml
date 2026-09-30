@@ -47,7 +47,6 @@ dependencies:
   fl_chart: ^0.66.0
   printing: ^5.11.0
   path_provider: ^2.1.2
-  google_maps_flutter: ^2.5.0
   google_generative_ai: ^0.4.7
   audioplayers: ^6.5.1
   camera: ^0.11.3
@@ -55,7 +54,6 @@ dependencies:
   flutter_tts: ^4.2.3
   speech_to_text: ^7.0.0
   geolocator: ^13.0.0
-  url_launcher: ^6.3.0
   sqflite: ^2.3.2 # For the local SQL database
   path: ^1.9.0
   intl: ^0.20.2
@@ -66,12 +64,13 @@ dependencies:
   flutter_background_messenger: ^0.0.2
 
   provider: ^6.1.5+1
-  introduction_screen: ^4.0.0
+  material_symbols_icons: ^4.2960.0
 
   # Firebase
   firebase_core: ^3.13.0
   firebase_auth: ^5.7.0
   cloud_firestore: ^5.6.12
+  wakelock_plus: ^1.5.2
 
 dev_dependencies:
   flutter_test:
@@ -90,8 +89,8 @@ flutter:
   uses-material-design: true
   assets:
     # You can add logo.jpg here if you want to use it inside the app too
-    - images/yaqdah-13.png
-    - images/yaqdah-05.png
+    - images/Yaqdah-13.png
+    - images/Yaqdah-05.png
     - images/logo.png
     - assets/sounds/
 

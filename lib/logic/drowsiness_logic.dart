@@ -20,19 +20,26 @@ class DrowsinessLogic {
   int _microsleepCount = 0;
   int _drowsyWarnings = 0;
   int _distractionWarnings = 0;
+  int _asleepEvents = 0;
 
   bool _drowsyAlertFired = false;
+  bool _asleepCounted = false;
   bool _distractedAlertFired = false;
 
   int get microsleepCount => _microsleepCount;
   int get drowsyWarnings => _drowsyWarnings;
   int get distractionWarnings => _distractionWarnings;
 
+  /// Eyes-closed episodes that reached "asleep".
+  int get asleepEvents => _asleepEvents;
+
   void resetMetrics() {
     _microsleepCount = 0;
     _drowsyWarnings = 0;
     _distractionWarnings = 0;
+    _asleepEvents = 0;
     _drowsyAlertFired = false;
+    _asleepCounted = false;
     _distractedAlertFired = false;
     _eyesClosedStart = null;
     _distractedStart = null;
@@ -58,6 +65,10 @@ class DrowsinessLogic {
       final closedMs = now.difference(_eyesClosedStart!).inMilliseconds;
 
       if (closedMs >= _timeToSleepMs) {
+        if (!_asleepCounted) {
+          _asleepEvents++;
+          _asleepCounted = true;
+        }
         return DriverState.asleep;
       }
 
@@ -81,6 +92,7 @@ class DrowsinessLogic {
       }
       _eyesClosedStart = null;
       _drowsyAlertFired = false;
+      _asleepCounted = false;
     }
 
     if (isDistracted) {

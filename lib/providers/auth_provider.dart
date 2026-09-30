@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
@@ -23,6 +24,9 @@ class AuthProvider with ChangeNotifier {
 
   final _firestore = FirebaseFirestore.instance;
 
+  static const _staySignedInKey = 'stay_signed_in';
+  static String _profileKey(String uid) => 'profile_$uid';
+
   Future<void> initApp() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -31,11 +35,16 @@ class AuthProvider with ChangeNotifier {
       // Check if Firebase user is already signed in
       final firebaseUser = AuthService.instance.currentUser;
       if (firebaseUser != null) {
-        await _loadUserProfile(firebaseUser);
-        _isAuthenticated = true;
+        if (prefs.getBool(_staySignedInKey) == false) {
+          // "Keep me signed in" was off last time.
+          await AuthService.instance.signOut();
+        } else {
+          await _loadUserProfile(firebaseUser);
+          _isAuthenticated = true;
 
-        // Sync trips from/to cloud
-        SyncService.instance.syncAll(firebaseUser.uid);
+          // Sync trips from/to cloud
+          SyncService.instance.syncAll(firebaseUser.uid);
+        }
       }
     } catch (e) {
       if (kDebugMode) {
@@ -66,26 +75,43 @@ class AuthProvider with ChangeNotifier {
     final user = await AuthService.instance.registerWithEmail(email, password);
     if (user == null) throw Exception('Registration failed');
 
-    // Update display name
-    await AuthService.instance.updateDisplayName(fullName);
-
-    // Store profile data in Firestore
+    // The account exists now: a failure below mustn't lose the profile.
     try {
-      await _firestore.collection('users').doc(user.uid).set({
-        'fullName': fullName,
-        'email': email,
-        'emergencyContact': emergencyContact,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      await AuthService.instance.updateDisplayName(fullName);
     } catch (e) {
-      if (kDebugMode) print('Warning: Failed to save user profile to Firestore: $e');
+      if (kDebugMode) print('Warning: Failed to set display name: $e');
     }
 
-    await _loadUserProfile(user);
+    _currentUser = {
+      'id': user.uid,
+      'email': email,
+      'fullName': fullName,
+      'emergencyContact': emergencyContact,
+    };
+    await _cacheProfile();
+
+    // Store profile data in Firestore. Offline, the write completes when
+    // the phone reconnects, so it isn't awaited.
+    _firestore
+        .collection('users')
+        .doc(user.uid)
+        .set({
+          'fullName': fullName,
+          'email': email,
+          'emergencyContact': emergencyContact,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true))
+        .catchError((Object e) {
+          if (kDebugMode) {
+            print('Warning: Failed to save user profile to Firestore: $e');
+          }
+        });
+
     _isAuthenticated = true;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_email', email);
+    await prefs.setBool(_staySignedInKey, true);
 
     // Sync trips from/to cloud
     SyncService.instance.syncAll(user.uid);
@@ -94,7 +120,13 @@ class AuthProvider with ChangeNotifier {
   }
 
   /// Sign in an existing user with Firebase Auth.
-  Future<void> signIn({required String email, required String password}) async {
+  ///
+  /// With [staySignedIn] false, the next app launch signs out again.
+  Future<void> signIn({
+    required String email,
+    required String password,
+    bool staySignedIn = true,
+  }) async {
     final user = await AuthService.instance.signInWithEmail(email, password);
     if (user == null) throw Exception('Sign in failed');
 
@@ -103,6 +135,7 @@ class AuthProvider with ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_email', email);
+    await prefs.setBool(_staySignedInKey, staySignedIn);
 
     // Sync trips from/to cloud
     SyncService.instance.syncAll(user.uid);
@@ -136,7 +169,8 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update profile data in Firestore.
+  /// Updates the profile. It applies at once (the SOS uses the new number
+  /// straight away) and reaches Firestore when there's a connection.
   Future<void> updateProfile({
     required String fullName,
     required String emergencyContact,
@@ -144,65 +178,111 @@ class AuthProvider with ChangeNotifier {
     final firebaseUser = AuthService.instance.currentUser;
     if (firebaseUser == null) return;
 
-    try {
-      await _firestore.collection('users').doc(firebaseUser.uid).update({
-        'fullName': fullName,
-        'emergencyContact': emergencyContact,
-      });
-    } catch (e) {
-      if (kDebugMode) print('Warning: Failed to update user profile in Firestore: $e');
-    }
-
-    await AuthService.instance.updateDisplayName(fullName);
-
-    _currentUser['fullName'] = fullName;
-    _currentUser['emergencyContact'] = emergencyContact;
+    _currentUser = {
+      ..._currentUser,
+      'fullName': fullName,
+      'emergencyContact': emergencyContact,
+    };
     notifyListeners();
+    await _cacheProfile();
+
+    // merge: also creates the document if signup couldn't write it.
+    _firestore
+        .collection('users')
+        .doc(firebaseUser.uid)
+        .set({
+          'fullName': fullName,
+          'emergencyContact': emergencyContact,
+          'email': firebaseUser.email ?? '',
+        }, SetOptions(merge: true))
+        .catchError((Object e) {
+          if (kDebugMode) {
+            print('Warning: Failed to update user profile in Firestore: $e');
+          }
+        });
+
+    try {
+      await AuthService.instance.updateDisplayName(fullName);
+    } catch (e) {
+      if (kDebugMode) print('Warning: Failed to update display name: $e');
+    }
+  }
+
+  /// Changes the password after confirming [currentPassword].
+  /// Throws [FirebaseAuthException] (e.g. `wrong-password`) on failure.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) => AuthService.instance.changePassword(currentPassword, newPassword);
+
+  /// Keeps the profile on the phone, so the emergency contact is known even
+  /// when Firestore can't be reached.
+  Future<void> _cacheProfile() async {
+    final id = _currentUser['id'] as String?;
+    if (id == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _profileKey(id),
+        jsonEncode({
+          'fullName': _currentUser['fullName'] ?? '',
+          'emergencyContact': _currentUser['emergencyContact'] ?? '',
+        }),
+      );
+    } catch (e) {
+      if (kDebugMode) print('Warning: Failed to cache profile: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> _cachedProfile(String uid) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_profileKey(uid));
+      if (raw == null) return null;
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Load user profile from Firestore into the currentUser map.
+  ///
+  /// Falls back to Firestore's offline copy, then to the copy kept on the
+  /// phone, so a slow network never drops the emergency contact.
   Future<void> _loadUserProfile(User firebaseUser) async {
+    final users = _firestore.collection('users');
+    Map<String, dynamic>? data;
     try {
-      final doc = await _firestore
-          .collection('users')
+      final doc = await users
           .doc(firebaseUser.uid)
           .get()
           .timeout(const Duration(seconds: 10));
-
-      if (doc.exists) {
-        final data = doc.data()!;
-        _currentUser = {
-          'id': firebaseUser.uid,
-          'email': firebaseUser.email ?? '',
-          'fullName': data['fullName'] ?? firebaseUser.displayName ?? '',
-          'emergencyContact': data['emergencyContact'] ?? '',
-        };
-      } else {
-        _currentUser = {
-          'id': firebaseUser.uid,
-          'email': firebaseUser.email ?? '',
-          'fullName': firebaseUser.displayName ?? '',
-          'emergencyContact': '',
-        };
-      }
-    } on TimeoutException catch (_) {
-      // Firestore unreachable — fall back to Firebase Auth data
-      _currentUser = {
-        'id': firebaseUser.uid,
-        'email': firebaseUser.email ?? '',
-        'fullName': firebaseUser.displayName ?? '',
-        'emergencyContact': '',
-      };
-      if (kDebugMode) print('_loadUserProfile: Firestore timeout, using Auth data');
+      data = doc.exists ? doc.data() : <String, dynamic>{};
     } catch (e) {
-      // Firestore permission denied or other error — fall back to Auth data
-      _currentUser = {
-        'id': firebaseUser.uid,
-        'email': firebaseUser.email ?? '',
-        'fullName': firebaseUser.displayName ?? '',
-        'emergencyContact': '',
-      };
-      if (kDebugMode) print('_loadUserProfile: Firestore error $e, using Auth data');
+      if (kDebugMode) print('_loadUserProfile: Firestore error $e');
+      try {
+        final doc = await users
+            .doc(firebaseUser.uid)
+            .get(const GetOptions(source: Source.cache));
+        if (doc.exists) data = doc.data();
+      } catch (_) {
+        // Not in Firestore's cache either.
+      }
     }
+
+    final cached = await _cachedProfile(firebaseUser.uid);
+    final fromServer = data ?? const <String, dynamic>{};
+    String pick(String key, String fallback) {
+      final value = (fromServer[key] ?? cached?[key])?.toString();
+      return (value == null || value.isEmpty) ? fallback : value;
+    }
+
+    _currentUser = {
+      'id': firebaseUser.uid,
+      'email': firebaseUser.email ?? '',
+      'fullName': pick('fullName', firebaseUser.displayName ?? ''),
+      'emergencyContact': pick('emergencyContact', ''),
+    };
+    await _cacheProfile();
   }
 }

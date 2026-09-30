@@ -1,55 +1,29 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import '../config/app_config.dart';
 
+/// Short spoken replies from Gemini.
+///
+/// Every call returns null when Gemini can't answer (no API key, offline,
+/// too slow), so callers speak a built-in phrase instead of an error.
 class GeminiService {
   static String get _apiKey => AppConfig.geminiApiKey;
-  // Replace with your actual API key after you publish the app.
+  static const String _modelName = 'gemini-2.5-flash';
 
-  late GenerativeModel _model;
+  GenerativeModel? _model;
 
-  String _currentModelName = 'gemini-2.5-flash';
+  bool get isConfigured => _apiKey.isNotEmpty;
 
-  GeminiService() {
-    _model = GenerativeModel(model: _currentModelName, apiKey: _apiKey);
+  GenerativeModel get _client =>
+      _model ??= GenerativeModel(model: _modelName, apiKey: _apiKey);
 
-    // Attempt to validate access immediately
-    _checkModelAccess();
-  }
-
-  // --- DIAGNOSTIC TOOL ---
-  Future<void> _checkModelAccess() async {
-    try {
-      // We send a dummy prompt to see if the model is reachable
-      debugPrint(
-        "GeminiService: Testing model access for $_currentModelName...",
-      );
-      final testContent = [Content.text("Test")];
-      await _model.generateContent(testContent);
-      debugPrint("GeminiService: ✅ Access Confirmed for $_currentModelName");
-    } catch (e) {
-      debugPrint(
-        "GeminiService: ❌ Access Failed for $_currentModelName. Error: $e",
-      );
-
-      // If Flash fails, fallback to Pro
-      if (e.toString().contains("404") || e.toString().contains("not found")) {
-        debugPrint(
-          "GeminiService: 🔄 Switching to 'gemini-pro' as fallback...",
-        );
-
-        _currentModelName = 'gemini-pro'; // Update our local tracker
-        _model = GenerativeModel(model: _currentModelName, apiKey: _apiKey);
-      }
-    }
-  }
-
-  /// Returns an intervention message for [state].
-  /// Set [locale] to 'en' for English; defaults to Arabic.
-  Future<String> getIntervention(String state, {String locale = 'ar'}) async {
+  /// A nudge for [state] ("DISTRACTED" or "DROWSY") in [locale] ('ar' or
+  /// 'en'). It has to arrive while it's still relevant, so it gives up
+  /// after a few seconds.
+  Future<String?> getIntervention(String state, {String locale = 'ar'}) {
     final bool isAr = locale == 'ar';
-    String prompt;
+    final String prompt;
     switch (state) {
       case "DISTRACTED":
         prompt = isAr
@@ -67,23 +41,14 @@ class GeminiService {
             : "You are a smart driver assistance AI. The driver is drowsy. "
                   "Give the single best English advice to wake them up (max 8 words).";
         break;
-      case "ASLEEP":
-        prompt = isAr
-            ? "The driver has fallen ASLEEP! Scream in Arabic to wake up NOW (max 3 words). Example: 'اصحى! خطر!'"
-            : "The driver has fallen ASLEEP! Shout a very short English wake-up command (max 3 words). Example: 'WAKE UP NOW!'";
-        break;
       default:
-        prompt = isAr ? "قل مرحبا" : "Say Hello";
+        return Future.value(null);
     }
-    return _sendPrompt(prompt);
+    return _send(prompt, timeout: const Duration(seconds: 4));
   }
 
-  /// Respond to a voice command from the driver.
-  /// Set [locale] to 'en' for English; defaults to Arabic.
-  Future<String> chatWithDriver(
-    String userMessage, {
-    String locale = 'ar',
-  }) async {
+  /// Respond to a voice command from the driver in [locale].
+  Future<String?> chatWithDriver(String userMessage, {String locale = 'ar'}) {
     final bool isAr = locale == 'ar';
     final String prompt = isAr
         ? "You are 'Yaqdah' (يقظة), a smart AI co-pilot for preventing drowsiness. "
@@ -97,35 +62,23 @@ class GeminiService {
               "Reply in friendly, engaging English to keep them awake. "
               "Keep your answers concise (max 2 sentences).";
 
-    return _sendPrompt(prompt);
+    return _send(prompt, timeout: const Duration(seconds: 12));
   }
 
-  Future<String> _sendPrompt(String prompt) async {
-    if (_apiKey.isEmpty) {
-      return "خطأ: مفتاح API غير مُعيَّن. شغّل التطبيق مع --dart-define=GEMINI_API_KEY=xxx";
-    }
+  Future<String?> _send(String prompt, {required Duration timeout}) async {
+    if (!isConfigured) return null;
     try {
-      final content = [Content.text(prompt)];
-      final response = await _model
-          .generateContent(content)
-          .timeout(const Duration(seconds: 15));
-      return response.text ?? "لا يوجد رد";
+      final response = await _client
+          .generateContent([Content.text(prompt)])
+          .timeout(timeout);
+      final text = response.text?.trim();
+      return (text == null || text.isEmpty) ? null : text;
     } on TimeoutException {
       debugPrint("⏱ GEMINI TIMEOUT");
-      return "انتهت مهلة الاتصال. تحقق من اتصالك بالإنترنت.";
+      return null;
     } catch (e) {
       debugPrint("❌ GEMINI ERROR: $e");
-      final msg = e.toString();
-      if (msg.contains("404") || msg.contains("not found")) {
-        return "خطأ: الموديل غير موجود (404). تأكد من المفتاح.";
-      }
-      if (msg.contains("403")) {
-        return "خطأ: مفتاح API غير صالح (403)";
-      }
-      if (msg.contains("User location is not supported")) {
-        return "خطأ: الخدمة غير متوفرة في منطقتك";
-      }
-      return "خطأ في الاتصال. حاول مرة أخرى.";
+      return null;
     }
   }
 }

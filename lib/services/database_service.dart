@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
@@ -11,6 +12,38 @@ class DatabaseService {
 
   DatabaseService._init();
 
+  /// Bumped whenever trips are added or removed, so screens can reload.
+  final ValueNotifier<int> tripsRevision = ValueNotifier<int>(0);
+  Timer? _notifyTimer;
+
+  /// Tells screens to reload trips. Bursts (e.g. a cloud import) are
+  /// batched into one reload.
+  void notifyTripsChanged() {
+    _notifyTimer?.cancel();
+    _notifyTimer = Timer(
+      const Duration(milliseconds: 150),
+      () => tripsRevision.value++,
+    );
+  }
+
+  /// Columns of a trip row except the (large) recorded route.
+  static const _tripListColumns = [
+    'id',
+    'userId',
+    'date',
+    'duration',
+    'distance',
+    'status',
+    'alerts',
+    'startTime',
+    'endTime',
+    'avgSpeed',
+    'maxSpeed',
+    'syncStatus',
+    'firestoreId',
+    'score',
+  ];
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDB('yaqdah.db');
@@ -23,7 +56,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -69,6 +102,23 @@ class DatabaseService {
         badges TEXT
       )
     ''');
+
+    await _createV11Tables(db);
+  }
+
+  /// Added in v11: deleted cloud trips (so a sync doesn't bring them back)
+  /// and an index for per-user trip lists.
+  Future<void> _createV11Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS deleted_trips (
+        userId TEXT NOT NULL,
+        firestoreId TEXT NOT NULL,
+        PRIMARY KEY (userId, firestoreId)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_trips_user_date ON trips(userId, date)',
+    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -78,8 +128,71 @@ class DatabaseService {
       await db.execute('DROP TABLE IF EXISTS trips');
       await db.execute('DROP TABLE IF EXISTS user_stats');
       await _createDB(db, newVersion);
+      return;
+    }
+    if (oldVersion < 11) {
+      await _convertOldSpeeds(db);
+      await _createV11Tables(db);
     }
   }
+
+  /// Before v11, trip speeds were saved in m/s under a "km/h" label.
+  Future<void> _convertOldSpeeds(Database db) async {
+    final rows = await db.query(
+      'trips',
+      columns: ['id', 'distance', 'duration', 'avgSpeed', 'maxSpeed'],
+    );
+    final batch = db.batch();
+    for (final row in rows) {
+      if (!speedsLookLikeMetersPerSecond(row)) continue;
+      batch.update(
+        'trips',
+        {
+          'avgSpeed': kmhLabelFromMetersPerSecond(row['avgSpeed']),
+          'maxSpeed': kmhLabelFromMetersPerSecond(row['maxSpeed']),
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  static double? _number(Object? value) => double.tryParse(
+    (value ?? '').toString().replaceAll(RegExp(r'[^0-9.]'), ''),
+  );
+
+  /// Whether a trip's speeds were saved in m/s (older app versions).
+  ///
+  /// Every trip saved before v11 used m/s, unless it came from a test
+  /// build of the redesign. The values themselves can tell: an average over
+  /// 40 only makes sense in km/h, and in km/h the average (which skips
+  /// stops) is at least distance / time, while in m/s it is well under.
+  static bool speedsLookLikeMetersPerSecond(Map<String, Object?> trip) {
+    final avg = _number(trip['avgSpeed']);
+    if (avg == null || avg <= 0) return false;
+    if (avg > 40) return false;
+    final max = _number(trip['maxSpeed']) ?? 0;
+    final km = _number(trip['distance']) ?? 0;
+    final parts = (trip['duration'] ?? '')
+        .toString()
+        .split(':')
+        .map((p) => int.tryParse(p.trim()) ?? 0)
+        .toList();
+    final seconds = parts.length == 3
+        ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+        : (parts.length == 2 ? parts[0] * 60 + parts[1] : 0);
+    if (km >= 0.5 && seconds >= 60) {
+      final overallKmh = km / (seconds / 3600);
+      if (avg < overallKmh * 0.9) return true;
+      if (max > 45 && avg >= overallKmh) return false;
+    }
+    return true;
+  }
+
+  /// "12.5 km/h" from a value saved in m/s.
+  static String kmhLabelFromMetersPerSecond(Object? value) =>
+      "${((_number(value) ?? 0) * 3.6).toStringAsFixed(1)} km/h";
 
   String _generateSalt() {
     final random = Random.secure();
@@ -162,7 +275,12 @@ class DatabaseService {
     );
   }
 
-  Future<void> saveTrip({
+  /// Saves a trip and returns its row id.
+  ///
+  /// Trips imported from the cloud pass their [firestoreId] and are stored
+  /// as already synced; imports pass [notify] false and notify once at the
+  /// end.
+  Future<int> saveTrip({
     required String userId,
     required String duration,
     required String distance,
@@ -175,9 +293,11 @@ class DatabaseService {
     required String maxSpeed,
     required List<Map<String, double>> routePath,
     String? customDate,
+    String? firestoreId,
+    bool notify = true,
   }) async {
     final db = await instance.database;
-    await db.insert('trips', {
+    final id = await db.insert('trips', {
       'userId': userId,
       'date': customDate ?? DateTime.now().toIso8601String(),
       'duration': duration,
@@ -190,26 +310,135 @@ class DatabaseService {
       'avgSpeed': avgSpeed,
       'maxSpeed': maxSpeed,
       'routePath': jsonEncode(routePath),
+      if (firestoreId != null) ...{
+        'firestoreId': firestoreId,
+        'syncStatus': 'synced',
+      },
     });
+    if (notify) notifyTripsChanged();
+    return id;
   }
 
+  /// A user's trips, newest first, without their recorded routes (see
+  /// [getTripRoute]).
   Future<List<Map<String, dynamic>>> getTrips(String userId) async {
     final db = await instance.database;
     return await db.query(
       'trips',
+      columns: _tripListColumns,
       where: 'userId = ?',
       whereArgs: [userId],
       orderBy: 'date DESC',
     );
   }
 
+  /// The user's most recent trip, without its route.
+  Future<Map<String, dynamic>?> getLastTrip(String userId) async {
+    final db = await instance.database;
+    final rows = await db.query(
+      'trips',
+      columns: _tripListColumns,
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// One whole trip row, route included.
+  Future<Map<String, dynamic>?> getTrip(int id) async {
+    final db = await instance.database;
+    final rows = await db.query('trips', where: 'id = ?', whereArgs: [id]);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// The recorded route of a trip as saved (a JSON list of lat/lng).
+  Future<String?> getTripRoute(int id) async {
+    final db = await instance.database;
+    final rows = await db.query(
+      'trips',
+      columns: ['routePath'],
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    return rows.isEmpty ? null : rows.first['routePath'] as String?;
+  }
+
+  /// Firestore ids this phone already has, or deleted and shouldn't re-import.
+  Future<Set<String>> getKnownFirestoreIds(String userId) async {
+    final db = await instance.database;
+    final local = await db.query(
+      'trips',
+      columns: ['firestoreId'],
+      where: 'userId = ? AND firestoreId IS NOT NULL',
+      whereArgs: [userId],
+    );
+    final deleted = await db.query(
+      'deleted_trips',
+      columns: ['firestoreId'],
+      where: 'userId = ?',
+      whereArgs: [userId],
+    );
+    return {
+      for (final row in [...local, ...deleted]) row['firestoreId'] as String,
+    };
+  }
+
+  Future<bool> isTripDeleted(String userId, String firestoreId) async {
+    final db = await instance.database;
+    final rows = await db.query(
+      'deleted_trips',
+      where: 'userId = ? AND firestoreId = ?',
+      whereArgs: [userId, firestoreId],
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Deletes a trip. Its cloud copy, if any, is remembered so a sync
+  /// doesn't bring it back.
   Future<int> deleteTrip(int id, String userId) async {
     final db = await instance.database;
-    return await db.delete(
-      'trips',
-      where: 'id = ? AND userId = ?',
-      whereArgs: [id, userId],
-    );
+    final count = await db.transaction((txn) async {
+      final rows = await txn.query(
+        'trips',
+        columns: ['firestoreId'],
+        where: 'id = ? AND userId = ?',
+        whereArgs: [id, userId],
+      );
+      final firestoreId = rows.isEmpty
+          ? null
+          : rows.first['firestoreId'] as String?;
+      if (firestoreId != null && firestoreId.isNotEmpty) {
+        await txn.insert('deleted_trips', {
+          'userId': userId,
+          'firestoreId': firestoreId,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+      return txn.delete(
+        'trips',
+        where: 'id = ? AND userId = ?',
+        whereArgs: [id, userId],
+      );
+    });
+    notifyTripsChanged();
+    return count;
+  }
+
+  /// Deletes every trip of [userId] on this phone and resets their level.
+  Future<void> deleteAllTrips(String userId) async {
+    final db = await instance.database;
+    await db.transaction((txn) async {
+      await txn.rawInsert(
+        'INSERT OR IGNORE INTO deleted_trips (userId, firestoreId) '
+        'SELECT userId, firestoreId FROM trips '
+        "WHERE userId = ? AND firestoreId IS NOT NULL AND firestoreId != ''",
+        [userId],
+      );
+      await txn.delete('trips', where: 'userId = ?', whereArgs: [userId]);
+      await txn.delete('user_stats', where: 'userId = ?', whereArgs: [userId]);
+    });
+    notifyTripsChanged();
   }
 
   Future<void> debugPrintAllUsers() async {
@@ -233,6 +462,18 @@ class DatabaseService {
     );
   }
 
+  /// Records the Firestore id a trip is being uploaded under, before the
+  /// upload, so a retry reuses it instead of creating a second copy.
+  Future<void> setTripFirestoreId(int localId, String firestoreId) async {
+    final db = await instance.database;
+    await db.update(
+      'trips',
+      {'firestoreId': firestoreId},
+      where: 'id = ?',
+      whereArgs: [localId],
+    );
+  }
+
   /// Mark a trip as synced with its Firestore document ID.
   Future<void> markTripSynced(int localId, String firestoreId) async {
     final db = await instance.database;
@@ -242,13 +483,6 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [localId],
     );
-  }
-
-  /// Get the ID of the last inserted trip.
-  Future<int?> getLastInsertedTripId() async {
-    final db = await instance.database;
-    final result = await db.rawQuery('SELECT last_insert_rowid() as id');
-    return result.first['id'] as int?;
   }
 
   /// Get user gamification stats

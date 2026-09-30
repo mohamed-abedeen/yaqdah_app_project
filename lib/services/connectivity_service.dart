@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'sync_service.dart';
 import '../services/auth_service.dart';
 
@@ -13,6 +14,7 @@ class ConnectivityService {
   ConnectivityService._();
 
   Timer? _timer;
+  AppLifecycleListener? _lifecycle;
   bool _wasOffline = false;
   bool _isMonitoring = false;
 
@@ -29,13 +31,32 @@ class ConnectivityService {
     if (_isMonitoring) return;
     _isMonitoring = true;
 
+    // No polling while the app is in the background; check on return.
+    _lifecycle ??= AppLifecycleListener(
+      onStateChange: (state) {
+        if (!_isMonitoring) return;
+        if (state == AppLifecycleState.resumed) {
+          _checkConnectivity();
+          _startTimer();
+        } else if (state == AppLifecycleState.hidden ||
+            state == AppLifecycleState.paused) {
+          _timer?.cancel();
+          _timer = null;
+        }
+      },
+    );
+    _startTimer();
+
+    // Initial check
+    _checkConnectivity();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
     // Check connectivity every 30 seconds
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       _checkConnectivity();
     });
-
-    // Initial check
-    _checkConnectivity();
   }
 
   /// Stop monitoring connectivity.

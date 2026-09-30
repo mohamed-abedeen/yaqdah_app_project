@@ -1,22 +1,30 @@
-import 'package:flutter/cupertino.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
+import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
-import '../widgets/edit_profile_modal.dart';
 import '../services/theme_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
+import '../widgets/common/app_icon.dart';
+import '../widgets/common/app_toggle.dart';
+import '../widgets/common/brand.dart';
+import '../widgets/common/segmented_control.dart';
+import '../widgets/edit_profile_modal.dart';
 import 'test_mode_screen.dart';
 
+/// Account & settings.
 class SettingsScreen extends StatefulWidget {
   final Map<String, dynamic> currentUser;
   final VoidCallback onLogout;
-  final Function(Map<String, dynamic>) onUpdateUser;
 
   const SettingsScreen({
     super.key,
     required this.currentUser,
     required this.onLogout,
-    required this.onUpdateUser,
   });
 
   @override
@@ -24,568 +32,478 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// The automatic text goes out while the driver can't answer a
+  /// permission prompt, so SMS access is asked for when it's turned on.
+  Future<void> _setAutoSos(SettingsProvider settings, bool enabled) async {
+    final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.of(context);
+    await settings.setAutoEmergency(enabled);
+    if (!enabled || !Platform.isAndroid) return;
+    if (await Permission.sms.request().isGranted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(l10n.smsPermissionNeeded),
+        action: SnackBarAction(
+          label: l10n.openSettings,
+          onPressed: openAppSettings,
+        ),
+      ),
+    );
+  }
+
   void _openEditProfile() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => EditProfileModal(
+      useSafeArea: true,
+      builder: (sheetContext) => EditProfileModal(
         user: widget.currentUser,
-        onClose: () => Navigator.pop(context),
+        onClose: () => Navigator.pop(sheetContext),
         onSave: (newName, newEmergency) {
-          Map<String, dynamic> updatedUser = Map<String, dynamic>.from(
-            widget.currentUser,
+          // Saves to Firestore and updates the signed-in user.
+          context.read<AuthProvider>().updateProfile(
+            fullName: newName,
+            emergencyContact: newEmergency,
           );
-          updatedUser['fullName'] = newName;
-          updatedUser['emergencyContact'] = newEmergency;
-          widget.onUpdateUser(updatedUser);
         },
+      ),
+    );
+  }
+
+  void _openLanguagePicker(SettingsProvider settings) {
+    final l10n = AppLocalizations.of(context)!;
+    final c = AppColors.of(context);
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: c.line,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  l10n.language,
+                  style: AppFonts.display(context, 22, color: c.text),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Group(
+                children: [
+                  for (final (code, label) in [
+                    ('en', l10n.languageEnglish),
+                    ('ar', l10n.languageArabic),
+                  ])
+                    _SettingsRow(
+                      title: label,
+                      onTap: () {
+                        settings.setLocale(code);
+                        Navigator.pop(sheetContext);
+                      },
+                      trailing: settings.locale.languageCode == code
+                          ? AppIcon(
+                              Symbols.check_rounded,
+                              size: 22,
+                              color: c.primary,
+                            )
+                          : null,
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final c = AppColors.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final textColor = theme.textTheme.bodyMedium!.color!;
-    final green = theme.primaryColor;
-    final red = theme.colorScheme.error;
-    final purple = ThemeService.purple;
-    final blue = ThemeService.blue;
+    final name = (widget.currentUser['fullName'] as String?)?.trim() ?? '';
+    final email = widget.currentUser['email'] as String? ?? '';
+    final contact = widget.currentUser['emergencyContact'] as String? ?? '';
 
     return Consumer<SettingsProvider>(
       builder: (context, settings, child) {
         return Scaffold(
-          backgroundColor: theme.scaffoldBackgroundColor,
           body: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.settingsTitle,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+            bottom: false,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    l10n.accountTitle,
+                    style: AppFonts.display(
+                      context,
+                      30,
+                      color: c.text,
+                      tracking: -0.02,
                     ),
                   ),
+                ),
+                const SizedBox(height: 8),
 
-                  const SizedBox(height: 20),
-
-                  // ── Profile Card ──────────────────────────────────────────
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.1),
-                          Colors.transparent,
-                        ],
+                // ── Profile ─────────────────────────────────────────────
+                AppCard(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  radius: 22,
+                  child: Row(
+                    children: [
+                      InitialsAvatar(
+                        name: name.isEmpty ? email : name,
+                        size: 52,
+                        fontSize: 18,
                       ),
-                      border: Border.all(
-                        color: const Color.fromARGB(
-                          31,
-                          112,
-                          112,
-                          112,
-                        ).withValues(alpha: 0.3),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name.isEmpty ? l10n.userFallbackName : name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.body(
+                                context,
+                                17,
+                                weight: FontWeight.w700,
+                                color: c.text,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              email,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.body(
+                                context,
+                                14,
+                                color: c.subtext,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: const Color.fromARGB(255, 91, 89, 92),
-                            borderRadius: BorderRadius.circular(80),
-                          ),
-                          child: const Icon(
-                            CupertinoIcons.person_fill,
-                            size: 36,
-                            color: Color.fromARGB(255, 0, 0, 0),
+                      const SizedBox(width: 8),
+                      Material(
+                        color: c.surface2,
+                        borderRadius: BorderRadius.circular(11),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: _openEditProfile,
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 36),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              l10n.edit,
+                              style: AppFonts.body(
+                                context,
+                                14,
+                                weight: FontWeight.w600,
+                                color: c.text,
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.currentUser['fullName'] ?? "User",
-                                style: TextStyle(
-                                  color: textColor,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                widget.currentUser['email'] ??
-                                    "email@example.com",
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              GestureDetector(
-                                onTap: _openEditProfile,
-                                child: Text(
-                                  l10n.editProfile,
-                                  style: TextStyle(
-                                    color: purple,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Safety ──────────────────────────────────────────────
+                _SectionHeader(l10n.sectionSafety),
+                _Group(
+                  children: [
+                    _SettingsRow(
+                      title: l10n.autoSosTitle,
+                      subtitle: l10n.autoSosSubtitle,
+                      trailing: AppToggle(
+                        value: settings.autoEmergency,
+                        onChanged: (v) => _setAutoSos(settings, v),
+                        semanticLabel: l10n.autoSosTitle,
+                      ),
+                      onTap: () =>
+                          _setAutoSos(settings, !settings.autoEmergency),
+                    ),
+                    _SettingsRow(
+                      title: l10n.emergencyContactTitle,
+                      value: contact.isEmpty ? l10n.notSet : contact,
+                      valueIsLtr: contact.isNotEmpty,
+                      chevron: true,
+                      onTap: _openEditProfile,
+                    ),
+                  ],
+                ),
+
+                // ── Alerts ──────────────────────────────────────────────
+                _SectionHeader(l10n.sectionAlerts),
+                _Group(
+                  children: [
+                    _SettingsRow(
+                      title: l10n.voiceAssistant,
+                      subtitle: l10n.voiceAssistantSubtitle,
+                      trailing: AppToggle(
+                        value: settings.aiAssistance,
+                        onChanged: settings.setAiAssistance,
+                        semanticLabel: l10n.voiceAssistant,
+                      ),
+                      onTap: () =>
+                          settings.setAiAssistance(!settings.aiAssistance),
+                    ),
+                    _SettingsRow(
+                      title: l10n.alarmSound,
+                      trailing: AppToggle(
+                        value: settings.sound,
+                        onChanged: settings.setSound,
+                        semanticLabel: l10n.alarmSound,
+                      ),
+                      onTap: () => settings.setSound(!settings.sound),
+                    ),
+                    _SettingsRow(
+                      title: l10n.vibration,
+                      trailing: AppToggle(
+                        value: settings.vibration,
+                        onChanged: settings.setVibration,
+                        semanticLabel: l10n.vibration,
+                      ),
+                      onTap: () => settings.setVibration(!settings.vibration),
+                    ),
+                  ],
+                ),
+
+                // ── App ─────────────────────────────────────────────────
+                _SectionHeader(l10n.sectionApp),
+                _Group(
+                  children: [
+                    ValueListenableBuilder<bool>(
+                      valueListenable: ThemeService.instance.isDarkMode,
+                      builder: (context, isDark, _) => _SettingsRow(
+                        title: l10n.appearance,
+                        dense: true,
+                        trailing: SegmentedControl<bool>(
+                          compact: true,
+                          segments: [
+                            Segment(true, l10n.themeDark),
+                            Segment(false, l10n.themeLight),
+                          ],
+                          selected: isDark,
+                          onChanged: (dark) {
+                            if (dark != isDark) {
+                              ThemeService.instance.toggleTheme();
+                            }
+                          },
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // ── Emergency ─────────────────────────────────────────────
-                  _sectionHeader(l10n.sectionEmergency),
-                  _buildSwitchCard(
-                    l10n.autoEmergencyTitle,
-                    l10n.autoEmergencySubtitle,
-                    CupertinoIcons.exclamationmark_triangle_fill,
-                    red,
-                    settings.autoEmergency,
-                    (v) => settings.setAutoEmergency(v),
-                    theme,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ── AI ────────────────────────────────────────────────────
-                  _sectionHeader(l10n.sectionAI),
-                  _buildSwitchCard(
-                    l10n.aiAssistantTitle,
-                    l10n.aiAssistantSubtitle,
-                    CupertinoIcons.waveform_path_ecg,
-                    const Color(0xFF009688),
-                    settings.aiAssistance,
-                    (v) => settings.setAiAssistance(v),
-                    theme,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ── Notifications ─────────────────────────────────────────
-                  _sectionHeader(l10n.sectionNotifications),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: theme.cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: theme.dividerColor),
+                    _SettingsRow(
+                      title: l10n.language,
+                      value: settings.locale.languageCode == 'ar'
+                          ? l10n.languageArabic
+                          : l10n.languageEnglish,
+                      chevron: true,
+                      onTap: () => _openLanguagePicker(settings),
                     ),
-                    child: Column(
-                      children: [
-                        _buildSwitchItem(
-                          l10n.enableNotifications,
-                          l10n.notificationsSubtitle,
-                          CupertinoIcons.bell_fill,
-                          green,
-                          settings.notifications,
-                          (v) => settings.setNotifications(v),
-                          theme,
-                        ),
-                        if (settings.notifications) ...[
-                          Divider(color: theme.dividerColor, height: 1),
-                          _buildSwitchItem(
-                            l10n.sound,
-                            "",
-                            CupertinoIcons.speaker_2_fill,
-                            blue,
-                            settings.sound,
-                            (v) => settings.setSound(v),
-                            theme,
+                    _SettingsRow(
+                      title: l10n.testLab,
+                      value: l10n.testLabValue,
+                      chevron: true,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const TestModeScreen(),
                           ),
-                          _buildSwitchItem(
-                            l10n.vibration,
-                            "",
-                            CupertinoIcons.waveform,
-                            purple,
-                            settings.vibration,
-                            (v) => settings.setVibration(v),
-                            theme,
-                          ),
-                        ],
-                      ],
+                        );
+                      },
                     ),
-                  ),
+                  ],
+                ),
 
-                  const SizedBox(height: 24),
-
-                  // ── App Settings ──────────────────────────────────────────
-                  _sectionHeader(l10n.sectionAppSettings),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: ThemeService.instance.isDarkMode,
-                    builder: (context, isDark, child) {
-                      return _buildSwitchCard(
-                        l10n.darkMode,
-                        l10n.darkModeSubtitle,
-                        CupertinoIcons.moon_stars_fill,
-                        Colors.yellow,
-                        isDark,
-                        (v) => ThemeService.instance.toggleTheme(),
-                        theme,
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // ── Test Lab ──────────────────────────────────────────────
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
+                // ── Sign out ────────────────────────────────────────────
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton(
+                    onPressed: widget.onLogout,
+                    style: TextButton.styleFrom(
+                      foregroundColor: c.danger,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      minimumSize: const Size(44, 44),
+                    ),
+                    child: Text(
+                      l10n.signOut,
+                      style: AppFonts.body(
                         context,
-                        MaterialPageRoute(
-                          builder: (context) => const TestModeScreen(),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: theme.cardColor,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: theme.dividerColor),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: ThemeService.blue.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              CupertinoIcons.lab_flask_solid,
-                              color: ThemeService.blue,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  l10n.testLab,
-                                  style: TextStyle(
-                                    color: theme.textTheme.bodyMedium!.color,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  l10n.testLabSubtitle,
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(
-                            CupertinoIcons.chevron_forward,
-                            size: 14,
-                            color: Colors.grey,
-                          ),
-                        ],
+                        16,
+                        weight: FontWeight.w600,
+                        color: c.danger,
                       ),
                     ),
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // ── Language ──────────────────────────────────────────────
-                  _sectionHeader(l10n.sectionLanguage),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: theme.cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: theme.dividerColor),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildLanguageTile(
-                            label: l10n.languageEnglish,
-                            flag: '🇬🇧',
-                            langCode: 'en',
-                            isSelected: settings.locale.languageCode == 'en',
-                            settings: settings,
-                            theme: theme,
-                            isFirst: true,
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 50,
-                          color: theme.dividerColor,
-                        ),
-                        Expanded(
-                          child: _buildLanguageTile(
-                            label: l10n.languageArabic,
-                            flag: '🇸🇦',
-                            langCode: 'ar',
-                            isSelected: settings.locale.languageCode == 'ar',
-                            settings: settings,
-                            theme: theme,
-                            isFirst: false,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ── Logout ────────────────────────────────────────────────
-                  _buildActionCard(
-                    l10n.logout,
-                    CupertinoIcons.square_arrow_left,
-                    red,
-                    widget.onLogout,
-                  ),
-
-                  const SizedBox(height: 40),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );
       },
     );
   }
+}
 
-  Widget _buildLanguageTile({
-    required String label,
-    required String flag,
-    required String langCode,
-    required bool isSelected,
-    required SettingsProvider settings,
-    required ThemeData theme,
-    required bool isFirst,
-  }) {
-    final isDark = theme.brightness == Brightness.dark;
-    final activeColor = isDark
-        ? const Color(0xFFFFC107)
-        : const Color.fromRGBO(52, 19, 163, 1);
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
 
-    return GestureDetector(
-      onTap: () => settings.setLocale(langCode),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? activeColor.withValues(alpha: 0.12) : null,
-          borderRadius: BorderRadius.horizontal(
-            left: isFirst ? const Radius.circular(20) : Radius.zero,
-            right: !isFirst ? const Radius.circular(20) : Radius.zero,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(flag, style: const TextStyle(fontSize: 20)),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected
-                    ? activeColor
-                    : theme.textTheme.bodyMedium!.color,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 14,
-              ),
-            ),
-            if (isSelected) ...[
-              const SizedBox(width: 6),
-              Icon(
-                CupertinoIcons.checkmark_circle_fill,
-                color: activeColor,
-                size: 16,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  final String title;
 
-  Widget _sectionHeader(String title) {
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10, right: 4),
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
       child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.grey,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
+        title.toUpperCase(),
+        style: AppFonts.overline(context, AppColors.of(context).subtext),
       ),
     );
   }
+}
 
-  Widget _buildSwitchCard(
-    String title,
-    String subtitle,
-    IconData icon,
-    Color color,
-    bool value,
-    Function(bool) onChanged,
-    ThemeData theme,
-  ) {
-    final isDark = theme.brightness == Brightness.dark;
-    final activeSwitchColor = isDark
-        ? const Color(0xFFFFC107)
-        : const Color.fromRGBO(52, 19, 163, 1);
+/// Grouped card with 1px dividers between rows.
+class _Group extends StatelessWidget {
+  const _Group({required this.children});
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.dividerColor),
-      ),
-      child: Row(
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return AppCard(
+      padding: EdgeInsets.zero,
+      radius: 20,
+      clip: true,
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: theme.textTheme.bodyMedium!.color,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (subtitle.isNotEmpty)
-                  Text(
-                    subtitle,
-                    style: const TextStyle(color: Colors.grey, fontSize: 10),
-                  ),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeThumbColor: activeSwitchColor,
-            activeTrackColor: activeSwitchColor.withValues(alpha: 0.3),
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: theme.dividerColor,
-          ),
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) Divider(color: c.line),
+            children[i],
+          ],
         ],
       ),
     );
   }
+}
 
-  Widget _buildSwitchItem(
-    String title,
-    String subtitle,
-    IconData icon,
-    Color color,
-    bool value,
-    Function(bool) onChanged,
-    ThemeData theme,
-  ) {
-    final isDark = theme.brightness == Brightness.dark;
-    final activeSwitchColor = isDark
-        ? const Color(0xFFFFC107)
-        : const Color.fromARGB(255, 86, 19, 163);
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({
+    required this.title,
+    this.subtitle,
+    this.value,
+    this.valueIsLtr = false,
+    this.trailing,
+    this.chevron = false,
+    this.dense = false,
+    this.onTap,
+  });
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
+  final String title;
+  final String? subtitle;
+
+  /// Current value shown before the chevron.
+  final String? value;
+
+  /// Forces left-to-right for values such as phone numbers.
+  final bool valueIsLtr;
+  final Widget? trailing;
+  final bool chevron;
+  final bool dense;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final row = Container(
+      constraints: const BoxConstraints(minHeight: 50),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: dense ? 8 : 10),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 18),
-          ),
-          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
-                  style: TextStyle(
-                    color: theme.textTheme.bodyMedium!.color,
-                    fontWeight: FontWeight.bold,
+                  style: AppFonts.body(
+                    context,
+                    16,
+                    weight: FontWeight.w600,
+                    color: c.text,
                   ),
                 ),
-                if (subtitle.isNotEmpty)
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
                   Text(
-                    subtitle,
-                    style: const TextStyle(color: Colors.grey, fontSize: 10),
+                    subtitle!,
+                    style: AppFonts.body(
+                      context,
+                      13,
+                      color: c.subtext,
+                      height: 1.35,
+                    ),
                   ),
+                ],
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeThumbColor: activeSwitchColor,
-            activeTrackColor: activeSwitchColor.withValues(alpha: 0.3),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionCard(
-    String title,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 10),
-            Text(
-              title,
-              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          if (value != null) ...[
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                value!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textDirection: valueIsLtr ? TextDirection.ltr : null,
+                style: AppFonts.body(context, 15, color: c.subtext),
+              ),
             ),
           ],
-        ),
+          if (trailing != null) ...[const SizedBox(width: 14), trailing!],
+          if (chevron) ...[
+            const SizedBox(width: 6),
+            AppIcon(
+              Symbols.chevron_right_rounded,
+              size: 20,
+              color: c.subtext,
+              mirror: true,
+            ),
+          ],
+        ],
       ),
     );
+
+    if (onTap == null) return row;
+    return InkWell(onTap: onTap, child: row);
   }
 }

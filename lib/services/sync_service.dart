@@ -7,8 +7,12 @@ import 'database_service.dart';
 ///
 /// Sync strategy:
 /// - On trip save: write locally first, then push to Firestore
-/// - On app start: pull cloud trips, merge with local (last-write-wins)
+/// - On app start: pull cloud trips this phone doesn't have yet
 /// - Unsynced trips are retried on next sync call
+///
+/// A trip's Firestore id is chosen and saved locally before the upload, and
+/// uploads use `set`, so retrying never makes a second copy. Deleted trips
+/// are remembered so a pull doesn't bring them back.
 class SyncService {
   static final SyncService instance = SyncService._();
   SyncService._();
@@ -16,43 +20,70 @@ class SyncService {
   final _firestore = FirebaseFirestore.instance;
   bool _isSyncing = false;
 
+  /// Local ids of trips being uploaded right now.
+  final Set<int> _pushing = {};
+
   /// Reference to a user's trips collection in Firestore.
   CollectionReference _tripsCollection(String userId) =>
       _firestore.collection('users').doc(userId).collection('trips');
 
-  /// Delete a trip from Firestore.
-  Future<void> deleteTrip(String userId, String firestoreId) async {
-    try {
-      await _tripsCollection(userId).doc(firestoreId).delete();
-      if (kDebugMode) {
-        debugPrint('✅ Trip deleted from Firestore: $firestoreId');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('⚠️ Failed to delete trip from Firestore: $e');
-      }
-    }
+  /// Deletes a trip on this phone and, when it was uploaded, in Firestore.
+  ///
+  /// The local delete happens first. Offline, Firestore finishes the cloud
+  /// delete later, so it isn't awaited.
+  Future<void> deleteTrip(String userId, int localId) async {
+    final trip = await DatabaseService.instance.getTrip(localId);
+    final firestoreId = trip?['firestoreId'] as String?;
+    await DatabaseService.instance.deleteTrip(localId, userId);
+    if (firestoreId == null || firestoreId.isEmpty) return;
+    _tripsCollection(userId)
+        .doc(firestoreId)
+        .delete()
+        .then(
+          (_) {
+            if (kDebugMode) {
+              debugPrint('✅ Trip deleted from Firestore: $firestoreId');
+            }
+          },
+          onError: (Object e) {
+            if (kDebugMode) {
+              debugPrint('⚠️ Failed to delete trip from Firestore: $e');
+            }
+          },
+        );
   }
 
   /// Push a single trip to Firestore.
   /// Called immediately after saving a trip locally.
-  Future<void> pushTrip(String userId, Map<String, dynamic> localTrip) async {
+  Future<void> pushTrip(String userId, int localId) async {
+    if (!_pushing.add(localId)) return;
     try {
-      final docData = _localTripToFirestore(localTrip);
-      final docRef = await _tripsCollection(userId).add(docData);
+      // Read it fresh: it may have been deleted or synced meanwhile.
+      final localTrip = await DatabaseService.instance.getTrip(localId);
+      if (localTrip == null || localTrip['syncStatus'] == 'synced') return;
 
-      // Mark as synced in local DB
-      final localId = localTrip['id'] as int;
-      await DatabaseService.instance.markTripSynced(localId, docRef.id);
+      final saved = localTrip['firestoreId'] as String?;
+      final docId = (saved == null || saved.isEmpty)
+          ? _tripsCollection(userId).doc().id
+          : saved;
+      if (await DatabaseService.instance.isTripDeleted(userId, docId)) return;
+      await DatabaseService.instance.setTripFirestoreId(localId, docId);
+
+      await _tripsCollection(
+        userId,
+      ).doc(docId).set(_localTripToFirestore(localTrip));
+      await DatabaseService.instance.markTripSynced(localId, docId);
 
       if (kDebugMode) {
-        debugPrint('✅ Trip synced to Firestore: ${docRef.id}');
+        debugPrint('✅ Trip synced to Firestore: $docId');
       }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('⚠️ Failed to sync trip: $e');
       }
       // Trip stays as 'pending' — will retry on next syncAll()
+    } finally {
+      _pushing.remove(localId);
     }
   }
 
@@ -63,12 +94,13 @@ class SyncService {
     _isSyncing = true;
 
     try {
-      // 1. Push unsynced local trips to cloud
+      // 1. Push unsynced local trips to cloud. Not awaited one by one:
+      // offline, a write only completes once the phone is back online.
       final unsyncedTrips = await DatabaseService.instance.getUnsyncedTrips(
         userId,
       );
       for (final trip in unsyncedTrips) {
-        await pushTrip(userId, trip);
+        pushTrip(userId, trip['id'] as int);
       }
 
       // 2. Pull cloud trips that don't exist locally
@@ -91,20 +123,19 @@ class SyncService {
     try {
       final cloudDocs = await _tripsCollection(userId).get();
 
-      // Get all local firestoreIds to know which cloud trips we already have
-      final localTrips = await DatabaseService.instance.getTrips(userId);
-      final localFirestoreIds = localTrips
-          .map((t) => t['firestoreId'] as String?)
-          .where((id) => id != null)
-          .toSet();
+      // Cloud trips this phone already has, or deleted.
+      final known = await DatabaseService.instance.getKnownFirestoreIds(userId);
 
+      var imported = 0;
       for (final doc in cloudDocs.docs) {
-        if (!localFirestoreIds.contains(doc.id)) {
-          // This cloud trip doesn't exist locally — save it
-          final cloudData = doc.data() as Map<String, dynamic>;
-          await _saveCloudTripLocally(userId, doc.id, cloudData);
+        if (known.contains(doc.id)) continue;
+        final cloudData = doc.data() as Map<String, dynamic>;
+        if (await _saveCloudTripLocally(userId, doc.id, cloudData)) {
+          imported++;
         }
       }
+      // One reload for the whole import.
+      if (imported > 0) DatabaseService.instance.notifyTripsChanged();
     } catch (e) {
       if (kDebugMode) {
         debugPrint('⚠️ Pull from cloud failed: $e');
@@ -113,7 +144,7 @@ class SyncService {
   }
 
   /// Save a cloud trip to the local SQLite database.
-  Future<void> _saveCloudTripLocally(
+  Future<bool> _saveCloudTripLocally(
     String userId,
     String firestoreId,
     Map<String, dynamic> data,
@@ -121,18 +152,21 @@ class SyncService {
     try {
       // Decode alerts
       List<String> alerts = [];
-      if (data['alerts'] != null) {
-        alerts = List<String>.from(data['alerts']);
+      if (data['alerts'] is List) {
+        alerts = [for (final a in data['alerts'] as List) a.toString()];
       }
 
       // Decode routePath
-      List<Map<String, double>> routePath = [];
-      if (data['routePath'] != null) {
-        routePath = List<Map<String, double>>.from(
-          (data['routePath'] as List).map(
-            (point) => Map<String, double>.from(point),
-          ),
-        );
+      final routePath = <Map<String, double>>[];
+      if (data['routePath'] is List) {
+        for (final point in data['routePath'] as List) {
+          if (point is! Map) continue;
+          final lat = point['lat'];
+          final lng = point['lng'];
+          if (lat is num && lng is num) {
+            routePath.add({'lat': lat.toDouble(), 'lng': lng.toDouble()});
+          }
+        }
       }
 
       // Get the date string
@@ -143,30 +177,42 @@ class SyncService {
         dateStr = data['date']?.toString() ?? DateTime.now().toIso8601String();
       }
 
+      // Trips uploaded by older versions stored speeds in m/s.
+      String avgSpeed = data['avgSpeed']?.toString() ?? '0.0 km/h';
+      String maxSpeed = data['maxSpeed']?.toString() ?? '0.0 km/h';
+      if (data['speedUnit'] != 'kmh' &&
+          DatabaseService.speedsLookLikeMetersPerSecond({
+            'avgSpeed': avgSpeed,
+            'maxSpeed': maxSpeed,
+            'distance': data['distance'],
+            'duration': data['duration'],
+          })) {
+        avgSpeed = DatabaseService.kmhLabelFromMetersPerSecond(avgSpeed);
+        maxSpeed = DatabaseService.kmhLabelFromMetersPerSecond(maxSpeed);
+      }
+
       await DatabaseService.instance.saveTrip(
         userId: userId,
-        duration: data['duration'] ?? '0:00',
-        distance: data['distance'] ?? '0.0 km',
-        status: data['status'] ?? 'Safe',
+        duration: data['duration']?.toString() ?? '0:00:00',
+        distance: data['distance']?.toString() ?? '0.0 km',
+        status: data['status']?.toString() ?? 'Safe',
         alerts: alerts,
-        score: data['score'] ?? 100,
-        startTime: data['startTime'] ?? '',
-        endTime: data['endTime'] ?? '',
-        avgSpeed: data['avgSpeed'] ?? '0.0 km/h',
-        maxSpeed: data['maxSpeed'] ?? '0.0 km/h',
+        score: (data['score'] as num?)?.toInt() ?? 100,
+        startTime: data['startTime']?.toString() ?? '',
+        endTime: data['endTime']?.toString() ?? '',
+        avgSpeed: avgSpeed,
+        maxSpeed: maxSpeed,
         routePath: routePath,
         customDate: dateStr,
+        firestoreId: firestoreId,
+        notify: false,
       );
-
-      // Mark as synced
-      final lastId = await DatabaseService.instance.getLastInsertedTripId();
-      if (lastId != null) {
-        await DatabaseService.instance.markTripSynced(lastId, firestoreId);
-      }
+      return true;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('⚠️ Failed to save cloud trip locally: $e');
       }
+      return false;
     }
   }
 
@@ -203,6 +249,7 @@ class SyncService {
       'endTime': localTrip['endTime'],
       'avgSpeed': localTrip['avgSpeed'],
       'maxSpeed': localTrip['maxSpeed'],
+      'speedUnit': 'kmh',
       'routePath': routePath,
       'syncedAt': FieldValue.serverTimestamp(),
     };

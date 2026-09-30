@@ -48,15 +48,11 @@ class GamificationLogic {
       badges.add("Marathoner");
     }
 
-    final startTimeStr = tripData['startTime'].toString();
+    // Started between midnight and 5 am.
+    final startHour = tripData['startHour'] as int? ?? 12;
     if (isSafeTrip &&
         tripDist >= 5 &&
-        (startTimeStr.contains("AM") &&
-            (startTimeStr.startsWith("12") ||
-                startTimeStr.startsWith("01") ||
-                startTimeStr.startsWith("02") ||
-                startTimeStr.startsWith("03") ||
-                startTimeStr.startsWith("04"))) &&
+        startHour < 5 &&
         !badges.contains("Night Owl")) {
       badges.add("Night Owl");
     }

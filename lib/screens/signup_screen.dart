@@ -1,8 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import '../providers/auth_provider.dart';
+import '../logic/phone_number.dart';
 import '../l10n/app_localizations.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
+import '../widgets/common/app_button.dart';
+import '../widgets/common/app_icon.dart';
+import '../widgets/common/app_text_field.dart';
+import '../widgets/common/auth_error_text.dart';
+import '../widgets/common/footer_link.dart';
 
 class SignupScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onLogin;
@@ -21,8 +30,6 @@ class _SignupScreenState extends State<SignupScreen> {
   final _emergencyContactController = TextEditingController();
 
   // State
-  bool _isPasswordVisible = false;
-  bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
 
   // Errors
@@ -31,13 +38,6 @@ class _SignupScreenState extends State<SignupScreen> {
   String? _passwordError;
   String? _confirmPasswordError;
   String? _emergencyError;
-
-  // Design Colors
-  final Color _bgColor = const Color(0xFF1E1E1E);
-  final Color _cardColor = const Color(0xFF2A2A2A);
-  final Color _borderColor = const Color(0xFF3A3A3A);
-  final Color _accentColor = const Color(0xFFF2D84C); // Gold
-  final Color _accentColorDark = const Color(0xFFE5C943);
 
   void _handleSignup() async {
     final l10n = AppLocalizations.of(context)!;
@@ -54,6 +54,8 @@ class _SignupScreenState extends State<SignupScreen> {
     final passText = _passwordController.text;
     final confirmPassText = _confirmPasswordController.text;
     final emergencyText = _emergencyContactController.text.trim();
+    // Stored in international form: 091 234 5678 → +218912345678.
+    final emergencyContact = PhoneNumber.normalize(emergencyText);
 
     bool isValid = true;
 
@@ -89,8 +91,8 @@ class _SignupScreenState extends State<SignupScreen> {
     if (emergencyText.isEmpty) {
       setState(() => _emergencyError = l10n.signupErrEmergencyRequired);
       isValid = false;
-    } else if (!RegExp(r'^\d+$').hasMatch(emergencyText)) {
-      setState(() => _emergencyError = l10n.signupErrEmergencyNumbers);
+    } else if (emergencyContact == null) {
+      setState(() => _emergencyError = l10n.phoneInvalid);
       isValid = false;
     }
 
@@ -105,49 +107,33 @@ class _SignupScreenState extends State<SignupScreen> {
         email: emailText,
         password: passText,
         fullName: nameText,
-        emergencyContact: emergencyText,
+        emergencyContact: emergencyContact!,
       );
 
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
 
       // Update Parent State (HomeScreen)
-      // Note: The onLogin callback (from LoginScreen) already handles
-      // popping both screens, so we do NOT call Navigator.pop here.
+      // Note: The onLogin callback (from LoginScreen) pops this screen.
       widget.onLogin(authProvider.currentUser);
     } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        final l10n = AppLocalizations.of(context)!;
-        String message;
-        switch (e.code) {
-          case 'email-already-in-use':
-            message = l10n.signupErrEmailInUse;
-            break;
-          case 'weak-password':
-            message = l10n.signupErrWeakPassword;
-            break;
-          case 'invalid-email':
-            message = l10n.signupErrEmailInvalid;
-            break;
-          default:
-            message = '${l10n.loginErrGeneric}: ${e.message}';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Colors.red),
-        );
-      }
+      _showError(authErrorText(e, AppLocalizations.of(context)!));
     } catch (e) {
+      debugPrint('Sign up failed: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        final l10n = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${l10n.loginErrUnexpected}: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _showError(AppLocalizations.of(context)!.loginErrUnexpected);
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: AppColors.of(context).danger,
+      ),
+    );
   }
 
   void _navigateToLogin() {
@@ -156,272 +142,124 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: _bgColor,
-        body: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            // ✅ Fix: Use ConstrainedBox for width limits
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 400),
-              child: Column(
-                children: [
-                  // --- Logo & Header ---
-                  Container(
-                    width: 100,
-                    height: 100,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    child: Image.asset(
-                      'images/yaqdah-05.png',
-                      fit: BoxFit.contain,
-                      errorBuilder: (c, o, s) => Icon(
-                        Icons.monitor_heart,
-                        color: _accentColor,
-                        size: 60,
-                      ),
-                    ),
+    final c = AppColors.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: IconButton(
+                  onPressed: _navigateToLogin,
+                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                  icon: AppIcon(
+                    Symbols.arrow_back_rounded,
+                    color: c.text,
+                    mirror: true,
                   ),
-                  const Text(
-                    "إنشاء حساب جديد",
-                    style: TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // --- Form Card ---
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: _cardColor,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: _borderColor),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          "التسجيل",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _accentColor,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-
-                        // Full Name
-                        _buildLabel("الاسم الكامل", Icons.person_outline),
-                        const SizedBox(height: 8),
-                        _buildTextField(
-                          controller: _nameController,
-                          hint: "أحمد محمد",
-                          errorText: _nameError,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Email
-                        _buildLabel("البريد الإلكتروني", Icons.email_outlined),
-                        const SizedBox(height: 8),
-                        _buildTextField(
-                          controller: _emailController,
-                          hint: "example@email.com",
-                          inputType: TextInputType.emailAddress,
-                          errorText: _emailError,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Password
-                        _buildLabel("كلمة المرور", Icons.lock_outline),
-                        const SizedBox(height: 8),
-                        _buildTextField(
-                          controller: _passwordController,
-                          hint: "••••••••",
-                          isPassword: true,
-                          isPasswordVisible: _isPasswordVisible,
-                          onVisibilityToggle: () => setState(
-                            () => _isPasswordVisible = !_isPasswordVisible,
-                          ),
-                          errorText: _passwordError,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Confirm Password
-                        _buildLabel("تأكيد كلمة المرور", Icons.lock_outline),
-                        const SizedBox(height: 8),
-                        _buildTextField(
-                          controller: _confirmPasswordController,
-                          hint: "••••••••",
-                          isPassword: true,
-                          isPasswordVisible: _isConfirmPasswordVisible,
-                          onVisibilityToggle: () => setState(
-                            () => _isConfirmPasswordVisible =
-                                !_isConfirmPasswordVisible,
-                          ),
-                          errorText: _confirmPasswordError,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Emergency Contact
-                        _buildLabel("رقم الطوارئ", Icons.phone_outlined),
-                        const SizedBox(height: 8),
-                        _buildTextField(
-                          controller: _emergencyContactController,
-                          hint: "966501234567",
-                          inputType: TextInputType.phone,
-                          errorText: _emergencyError,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // --- Signup Button ---
-                  Container(
-                    width: double.infinity,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_accentColor, _accentColorDark],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _accentColor.withValues(alpha: 0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _handleSignup,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: _isLoading
-                          ? const CircularProgressIndicator(color: Colors.black)
-                          : const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.person_add, color: Colors.black),
-                                SizedBox(width: 8),
-                                Text(
-                                  "إنشاء حساب",
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // --- Login Link ---
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                ),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
+                child: AutofillGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text(
-                        "لديك حساب بالفعل؟ ",
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                      GestureDetector(
-                        onTap: _navigateToLogin,
-                        child: Text(
-                          "تسجيل الدخول",
-                          style: TextStyle(
-                            color: _accentColor,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      Text(
+                        l10n.signupTitle,
+                        style: AppFonts.display(
+                          context,
+                          30,
+                          color: c.text,
+                          tracking: -0.02,
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        l10n.signupSubtitle,
+                        style: AppFonts.body(context, 16, color: c.subtext),
+                      ),
+                      const SizedBox(height: 22),
+                      AppTextField(
+                        controller: _nameController,
+                        label: l10n.signupFullName,
+                        errorText: _nameError,
+                        height: 50,
+                        labelGap: 6,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.name],
+                      ),
+                      const SizedBox(height: 14),
+                      AppTextField(
+                        controller: _emailController,
+                        label: l10n.signupEmail,
+                        errorText: _emailError,
+                        height: 50,
+                        labelGap: 6,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
+                      ),
+                      const SizedBox(height: 14),
+                      AppTextField(
+                        controller: _passwordController,
+                        label: l10n.signupPassword,
+                        errorText: _passwordError,
+                        height: 50,
+                        labelGap: 6,
+                        isPassword: true,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.newPassword],
+                      ),
+                      const SizedBox(height: 14),
+                      AppTextField(
+                        controller: _confirmPasswordController,
+                        label: l10n.signupConfirmPassword,
+                        errorText: _confirmPasswordError,
+                        height: 50,
+                        labelGap: 6,
+                        isPassword: true,
+                        textInputAction: TextInputAction.next,
+                      ),
+                      const SizedBox(height: 22),
+                      _EmergencyContactCard(
+                        controller: _emergencyContactController,
+                        errorText: _emergencyError,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AppButton(
+                    label: l10n.signupButton,
+                    loading: _isLoading,
+                    onPressed: _handleSignup,
+                  ),
+                  const SizedBox(height: 6),
+                  FooterLink(
+                    prompt: l10n.signupHaveAccount,
+                    action: l10n.signupLogin,
+                    onTap: _navigateToLogin,
+                  ),
                 ],
               ),
             ),
-          ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildLabel(String text, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: Colors.grey),
-        const SizedBox(width: 8),
-        Text(text, style: const TextStyle(color: Colors.grey, fontSize: 14)),
-      ],
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hint,
-    String? errorText,
-    bool isPassword = false,
-    bool isPasswordVisible = false,
-    VoidCallback? onVisibilityToggle,
-    TextInputType inputType = TextInputType.text,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: _bgColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: errorText != null ? Colors.red : _borderColor,
-            ),
-          ),
-          child: TextField(
-            controller: controller,
-            obscureText: isPassword && !isPasswordVisible,
-            keyboardType: inputType,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: TextStyle(color: Colors.grey.withValues(alpha: 0.5)),
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
-              suffixIcon: isPassword
-                  ? IconButton(
-                      icon: Icon(
-                        isPasswordVisible
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                        color: Colors.grey,
-                      ),
-                      onPressed: onVisibilityToggle,
-                    )
-                  : null,
-            ),
-          ),
-        ),
-        if (errorText != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 6, right: 8),
-            child: Text(
-              errorText,
-              style: const TextStyle(color: Colors.red, fontSize: 12),
-            ),
-          ),
-      ],
     );
   }
 
@@ -433,5 +271,96 @@ class _SignupScreenState extends State<SignupScreen> {
     _confirmPasswordController.dispose();
     _emergencyContactController.dispose();
     super.dispose();
+  }
+}
+
+class _EmergencyContactCard extends StatelessWidget {
+  const _EmergencyContactCard({
+    required this.controller,
+    required this.errorText,
+  });
+
+  final TextEditingController controller;
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: c.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppIcon(
+                Symbols.emergency_home_rounded,
+                size: 22,
+                color: c.danger,
+                filled: true,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.emergencyContactTitle,
+                      style: AppFonts.body(
+                        context,
+                        15,
+                        weight: FontWeight.w700,
+                        color: c.text,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      l10n.emergencyContactHelp,
+                      style: AppFonts.body(
+                        context,
+                        14,
+                        color: c.subtext,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AppTextField(
+            controller: controller,
+            errorText: errorText,
+            height: 50,
+            fill: c.bg,
+            hint: '91 234 5678',
+            keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.telephoneNumberNational],
+            prefix: Container(
+              padding: const EdgeInsetsDirectional.only(end: 12),
+              margin: const EdgeInsetsDirectional.only(end: 12),
+              decoration: BoxDecoration(
+                border: BorderDirectional(end: BorderSide(color: c.line)),
+              ),
+              child: Text(
+                PhoneNumber.countryCode,
+                textDirection: TextDirection.ltr,
+                style: AppFonts.body(context, 16, color: c.subtext),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

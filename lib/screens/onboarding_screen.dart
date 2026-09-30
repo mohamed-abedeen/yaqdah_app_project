@@ -1,10 +1,18 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
-import 'package:introduction_screen/introduction_screen.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
-import '../services/theme_service.dart';
+import '../providers/location_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
+import '../widgets/common/app_button.dart';
+import '../widgets/common/app_icon.dart';
+import '../widgets/common/brand.dart';
 
+/// Two pages: welcome, then the permissions explainer.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -13,144 +21,307 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final introKey = GlobalKey<IntroductionScreenState>();
+  final PageController _pageController = PageController();
+  int _page = 0;
+  bool _finishing = false;
 
   Future<void> _requestPermissions() async {
     await [
       Permission.camera,
       Permission.location,
       Permission.microphone,
+      // The SOS text is sent while the driver can't answer a prompt, so
+      // ask now. Only Android apps can send texts.
+      if (Platform.isAndroid) Permission.sms,
     ].request();
   }
 
   void _onIntroEnd(BuildContext context) async {
+    if (_finishing) return;
+    setState(() => _finishing = true);
     await _requestPermissions();
     if (context.mounted) {
+      // Location updates couldn't start before the permission was granted.
+      context.read<LocationProvider>().startLocationUpdates();
       Provider.of<AuthProvider>(context, listen: false).completeOnboarding();
     }
   }
 
-  Widget _buildImage(String assetName, [double width = 250]) {
-    // If you don't have specific onboarding images, we can use icons
-    // or the existing logo. For now, let's use Icons if images aren't there.
-    // Ideally we would use: Image.asset('images/$assetName', width: width);
-    // But since I don't want to break it with missing assets, I'll use a placeholder builder
-    // that tries the asset but falls back to an Icon.
-
-    return Image.asset(
-      'images/$assetName',
-      width: width,
-      errorBuilder: (context, error, stackTrace) {
-        return Icon(
-          Icons.featured_play_list,
-          size: 100,
-          color: ThemeService.purple,
-        );
-      },
+  void _goTo(int page) {
+    _pageController.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
     );
   }
 
   @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    const bodyStyle = TextStyle(fontSize: 19.0);
-    const pageDecoration = PageDecoration(
-      titleTextStyle: TextStyle(fontSize: 28.0, fontWeight: FontWeight.w700),
-      bodyTextStyle: bodyStyle,
-      bodyPadding: EdgeInsets.fromLTRB(16.0, 0.0, 16.0, 16.0),
-      pageColor: Colors.white,
-      imagePadding: EdgeInsets.zero,
+    final c = AppColors.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Top bar: back (page 2 only) and Skip.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Row(
+                children: [
+                  if (_page > 0)
+                    IconButton(
+                      onPressed: () => _goTo(_page - 1),
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).backButtonTooltip,
+                      icon: AppIcon(
+                        Symbols.arrow_back_rounded,
+                        color: c.text,
+                        mirror: true,
+                      ),
+                    ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => _onIntroEnd(context),
+                    style: TextButton.styleFrom(
+                      foregroundColor: c.subtext,
+                      minimumSize: const Size(44, 44),
+                    ),
+                    child: Text(
+                      l10n.onboardingSkip,
+                      style: AppFonts.body(
+                        context,
+                        16,
+                        weight: FontWeight.w600,
+                        color: c.subtext,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: (page) => setState(() => _page = page),
+                children: const [_WelcomePage(), _PermissionsPage()],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 8),
+                    child: Row(
+                      children: [
+                        for (var i = 0; i < 2; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            width: i == _page ? 24 : 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: i == _page ? c.primary : c.line,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: _page == 0 ? 28 : 20),
+                  _page == 0
+                      ? AppButton(
+                          label: l10n.onboardingGetStarted,
+                          onPressed: () => _goTo(1),
+                          trailingIcon: Symbols.arrow_forward_rounded,
+                        )
+                      : AppButton(
+                          label: l10n.onboardingAllowAccess,
+                          loading: _finishing,
+                          onPressed: () => _onIntroEnd(context),
+                        ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+}
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+class _WelcomePage extends StatelessWidget {
+  const _WelcomePage();
 
-    return IntroductionScreen(
-      key: introKey,
-      globalBackgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-      allowImplicitScrolling: true,
-      autoScrollDuration: 3000,
-      infiniteAutoScroll: false,
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
-      pages: [
-        PageViewModel(
-          title: "مرحبًا بك في يقظة",
-          body:
-              "Your intelligent companion for safer driving. Stay awake, stay safe.",
-          image: _buildImage('yaqdah-05.png'),
-          decoration: pageDecoration.copyWith(
-            pageColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-            titleTextStyle: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.sizeOf(context).height * 0.55,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const LogoTile(
+              size: 152,
+              radius: 44,
+              logoWidth: 96,
+              shadow: [
+                BoxShadow(
+                  color: Color(0x403C1EB4),
+                  blurRadius: 60,
+                  offset: Offset(0, 24),
+                ),
+              ],
             ),
-            bodyTextStyle: TextStyle(
-              fontSize: 19,
-              color: isDark ? Colors.grey[300] : Colors.grey[800],
+            const SizedBox(height: 40),
+            Text(
+              l10n.onboardingWelcomeTitle,
+              style: AppFonts.display(
+                context,
+                42,
+                color: c.text,
+                height: 1.05,
+                tracking: -0.025,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              l10n.onboardingWelcomeBody,
+              style: AppFonts.body(context, 18, color: c.subtext, height: 1.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PermissionsPage extends StatelessWidget {
+  const _PermissionsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 16, 28, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l10n.onboardingPermsTitle,
+            style: AppFonts.display(
+              context,
+              34,
+              color: c.text,
+              height: 1.1,
+              tracking: -0.02,
             ),
           ),
-        ),
-        PageViewModel(
-          title: "مراقبتك الذكي",
-          body:
-              "نستخدم  الذكاء الاصطناعي لمراقبة عينيك ووضعية رأسك للكشف عن علامات النعاس.",
-          image: Icon(
-            Icons.remove_red_eye_rounded,
-            size: 150,
-            color: ThemeService.purple,
+          const SizedBox(height: 12),
+          Text(
+            l10n.onboardingPermsSubtitle,
+            style: AppFonts.body(context, 17, color: c.subtext, height: 1.5),
           ),
-          decoration: pageDecoration.copyWith(
-            pageColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-            titleTextStyle: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-            bodyTextStyle: TextStyle(
-              fontSize: 19,
-              color: isDark ? Colors.grey[300] : Colors.grey[800],
+          const SizedBox(height: 32),
+          _PermissionCard(
+            icon: Symbols.photo_camera_rounded,
+            title: l10n.permCameraName,
+            body: l10n.permCameraDesc,
+          ),
+          const SizedBox(height: 12),
+          _PermissionCard(
+            icon: Symbols.location_on_rounded,
+            title: l10n.permLocationName,
+            body: l10n.permLocationDesc,
+          ),
+          const SizedBox(height: 12),
+          _PermissionCard(
+            icon: Symbols.mic_rounded,
+            title: l10n.permMicName,
+            body: l10n.permMicDesc,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionCard extends StatelessWidget {
+  const _PermissionCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return AppCard(
+      padding: const EdgeInsets.all(18),
+      radius: 20,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconTile(
+            icon: icon,
+            background: c.primarySoft,
+            foreground: c.primary,
+            size: 48,
+            radius: 14,
+            iconSize: 26,
+            filled: true,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppFonts.body(
+                    context,
+                    17,
+                    weight: FontWeight.w700,
+                    color: c.text,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  body,
+                  style: AppFonts.body(
+                    context,
+                    15,
+                    color: c.subtext,
+                    height: 1.45,
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        PageViewModel(
-          title: "Permissions Needed",
-          body:
-              "To protect you, we need access to your Camera (for eyes) and Location (for SOS).",
-          image: Icon(Icons.security, size: 150, color: ThemeService.orange),
-          decoration: pageDecoration.copyWith(
-            pageColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-            titleTextStyle: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-            bodyTextStyle: TextStyle(
-              fontSize: 19,
-              color: isDark ? Colors.grey[300] : Colors.grey[800],
-            ),
-          ),
-        ),
-      ],
-      onDone: () => _onIntroEnd(context),
-      onSkip: () => _onIntroEnd(context), // You can override onSkip behavior
-      showSkipButton: true,
-      skipOrBackFlex: 0,
-      nextFlex: 0,
-      showBackButton: false,
-      //rtl: true, // Uncomment to enable RTL for Arabic
-      back: const Icon(Icons.arrow_back),
-      skip: const Text('Skip', style: TextStyle(fontWeight: FontWeight.w600)),
-      next: const Icon(Icons.arrow_forward),
-      done: const Text('Start', style: TextStyle(fontWeight: FontWeight.w600)),
-      curve: Curves.fastLinearToSlowEaseIn,
-      controlsMargin: const EdgeInsets.all(16),
-      controlsPadding: const EdgeInsets.fromLTRB(8.0, 4.0, 8.0, 4.0),
-      dotsDecorator: const DotsDecorator(
-        size: Size(10.0, 10.0),
-        color: Color(0xFFBDBDBD),
-        activeSize: Size(22.0, 10.0),
-        activeShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(25.0)),
-        ),
+        ],
       ),
     );
   }

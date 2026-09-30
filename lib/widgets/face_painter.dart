@@ -2,6 +2,7 @@ import 'dart:math'; // ✅ Needed for Point
 import 'package:camera/camera.dart'; // ✅ Needed for CameraLensDirection
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../theme/app_colors.dart';
 
 class FacePainter extends CustomPainter {
   final List<Face> faces;
@@ -21,18 +22,18 @@ class FacePainter extends CustomPainter {
     final Paint paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0
-      ..color = const Color(0xFF00FF7F); // Neon Green
+      ..color = AppColors.dark.ok;
 
     final Paint paintRed = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0
-      ..color = Colors.red;
+      ..color = AppColors.dark.danger;
 
-    // ✅ Fix: Paint does not have copyWith, so we create a new one for the blue mesh
+    // ✅ Fix: Paint does not have copyWith, so we create a new one for the mesh
     final Paint paintBlue = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0
-      ..color = Colors.blue.withValues(alpha: 0.5);
+      ..color = AppColors.dark.primary.withValues(alpha: 0.5);
 
     for (final Face face in faces) {
       // Draw Face Bounding Box

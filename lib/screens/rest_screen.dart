@@ -1,18 +1,29 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
+import '../providers/location_provider.dart';
 import '../services/places_service.dart';
-import '../services/theme_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
+import '../widgets/common/app_icon.dart';
+import '../widgets/common/brand.dart';
+import '../widgets/common/place_labels.dart';
+import '../widgets/drive/in_trip_view.dart' show mapboxTileUrl;
 
 class RestScreen extends StatefulWidget {
-  final Function(LatLng) onPlaceSelected;
-  final LatLng currentLocation;
+  final void Function(LatLng location, String name) onPlaceSelected;
+
+  /// Whether the tab is on screen. Searches and distance updates wait
+  /// until it is.
+  final bool active;
 
   const RestScreen({
     super.key,
     required this.onPlaceSelected,
-    required this.currentLocation,
+    required this.active,
   });
 
   @override
@@ -20,196 +31,309 @@ class RestScreen extends StatefulWidget {
 }
 
 class _RestScreenState extends State<RestScreen> {
-  String _activeCategory = 'all';
-  bool _isLoading = false;
-  List<Map<String, dynamic>> _places = [];
+  /// Nearest places listed; the search can return many more.
+  static const _maxListed = 25;
 
-  LatLng? _lastFetchLocation;
-  final Distance _distanceCalculator = const Distance();
+  /// Search again after moving this far (metres) from the last search.
+  static const _refetchDistance = 1500.0;
+
+  /// Distances are redrawn after moving this far (metres).
+  static const _redrawDistance = 50.0;
+
+  late final LocationProvider _location;
+  String _category = 'all';
+  String? _languageCode;
+
+  /// Where the driver is, updated every [_redrawDistance] or so.
+  LatLng? _here;
+
+  /// Centre of the running or latest search.
+  LatLng? _searchCenter;
+  PlacesResult? _result;
+  bool _loading = false;
+  bool _failed = false;
+
+  /// Drops answers to searches that were replaced by a newer one.
+  int _request = 0;
+
+  List<(Place, double)> _listed = const [];
+  PlacesResult? _listedFor;
+  LatLng? _listedFrom;
 
   @override
   void initState() {
     super.initState();
-    _fetchPlaces();
+    _location = context.read<LocationProvider>();
+    _location.addListener(_onLocationChanged);
+    if (_location.hasLocation) _here = _location.currentLocation;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _maybeFetch();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final languageCode = Localizations.localeOf(context).languageCode;
+    if (languageCode == _languageCode) return;
+    final hadResults = _result != null;
+    _languageCode = languageCode;
+    // Place names come in the app language: search again.
+    if (hadResults) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetch();
+      });
+    }
   }
 
   @override
   void didUpdateWidget(RestScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    double distance = 0.0;
-    if (_lastFetchLocation != null) {
-      distance = _distanceCalculator.as(
-        LengthUnit.Meter,
-        _lastFetchLocation!,
-        widget.currentLocation,
-      );
-    }
-
-    if (distance > 2000) {
-      _fetchPlaces();
+    if (widget.active && !oldWidget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncLocation();
+      });
     }
   }
 
-  Future<void> _fetchPlaces() async {
-    if (_isLoading) return;
-    if (mounted) setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _location.removeListener(_onLocationChanged);
+    super.dispose();
+  }
 
-    int searchRadius = 5000;
-    if (_activeCategory == 'hotel' || _activeCategory == 'all') {
-      searchRadius = 20000;
+  void _onLocationChanged() {
+    if (widget.active) _syncLocation();
+  }
+
+  void _syncLocation() {
+    if (!_location.hasLocation) return;
+    final here = _location.currentLocation;
+    final previous = _here;
+    if (previous == null ||
+        approxDistanceMeters(previous, here) >= _redrawDistance) {
+      setState(() => _here = here);
     }
+    _maybeFetch();
+  }
+
+  /// Searches when there's no search for this area yet.
+  void _maybeFetch() {
+    final here = _here;
+    if (here == null || !widget.active) return;
+    final center = _searchCenter;
+    if (center != null &&
+        approxDistanceMeters(center, here) < _refetchDistance) {
+      return;
+    }
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    final here = _here;
+    final languageCode = _languageCode;
+    if (here == null || languageCode == null) return;
+    final request = ++_request;
+    final category = _category;
+    setState(() {
+      _loading = true;
+      _failed = false;
+      _searchCenter = here;
+    });
 
     try {
-      List<Map<String, dynamic>> results = await PlacesService().fetchPlaces(
-        center: widget.currentLocation,
-        category: _activeCategory,
-        radius: searchRadius,
+      final result = await PlacesService().findPlaces(
+        center: here,
+        category: category,
+        languageCode: languageCode,
       );
-
-      if (mounted) {
-        setState(() {
-          _places = results;
-          _isLoading = false;
-          _lastFetchLocation = widget.currentLocation;
-        });
-      }
+      if (!mounted || request != _request) return;
+      setState(() {
+        _result = result;
+        _loading = false;
+      });
     } catch (e) {
       debugPrint("Error fetching places: $e");
-      if (mounted) setState(() => _isLoading = false);
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
     }
   }
 
-  Map<String, dynamic> _getStyleForType(String type) {
-    switch (type) {
-      case 'hotel':
-        return {
-          'icon': Icons.hotel,
-          'color': ThemeService.purple,
-        };
-      case 'cafe':
-        return {
-          'icon': Icons.local_cafe,
-          'color': ThemeService.orange,
-        };
-      case 'mosque':
-        return {'icon': Icons.mosque, 'color': ThemeService.blue};
-      default:
-        return {'icon': CupertinoIcons.map_pin, 'color': Colors.grey};
-    }
+  void _selectCategory(String category) {
+    if (_category == category) return;
+    setState(() {
+      _category = category;
+      // Never show the previous category's places under the new chip.
+      _result = null;
+    });
+    _fetch();
   }
 
-  List<Map<String, dynamic>> _getCategories(AppLocalizations l10n) => [
-    {'id': 'all', 'label': l10n.catAll, 'icon': CupertinoIcons.map},
-    {
-      'id': 'hotel',
-      'label': l10n.catHotels,
-      'icon': Icons.hotel,
-    },
-    {'id': 'cafe', 'label': l10n.catCafes, 'icon': Icons.local_cafe},
-    {
-      'id': 'mosque',
-      'label': l10n.catMosques,
-      'icon': Icons.mosque,
-    },
-  ];
+  /// The nearest places to [_here], with their distance in metres.
+  List<(Place, double)> _nearestPlaces() {
+    final result = _result;
+    final from = _here ?? result?.center;
+    if (result == null || from == null) return const [];
+    if (identical(result, _listedFor) && from == _listedFrom) return _listed;
+
+    final withDistance = [
+      for (final p in result.places)
+        (p, const Distance().as(LengthUnit.Meter, from, p.location)),
+    ]..sort((a, b) => a.$2.compareTo(b.$2));
+    _listed = withDistance.take(_maxListed).toList();
+    _listedFor = result;
+    _listedFrom = from;
+    return _listed;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = theme.textTheme.bodyMedium!.color!;
-    final subColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
-    final green = theme.primaryColor;
-    final categories = _getCategories(l10n);
+    final issue = context.select<LocationProvider, LocationIssue?>(
+      (l) => l.issue,
+    );
+    final here = _here;
+    final result = _result;
+    final places = _nearestPlaces();
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
+    final String subtitle;
+    if (result != null) {
+      subtitle = l10n.restSubtitle(result.radius ~/ 1000);
+    } else if (here == null) {
+      subtitle = issue != null
+          ? l10n.restLocationOff
+          : l10n.restWaitingLocation;
+    } else {
+      subtitle = l10n.findingRestStop;
+    }
+
+    final categories = [
+      ('all', l10n.catAll, null),
+      (PlaceType.cafe, l10n.catCafes, Symbols.local_cafe_rounded),
+      (PlaceType.mosque, l10n.catMosques, Symbols.mosque_rounded),
+      (PlaceType.hotel, l10n.catHotels, Symbols.hotel_rounded),
+    ];
+
+    final Widget body;
+    if (here == null) {
+      body = issue != null
+          ? _buildMessage(
+              c,
+              icon: Symbols.location_off_rounded,
+              message: l10n.restLocationOff,
+              action: l10n.openSettings,
+              onAction: _location.resolveIssue,
+            )
+          : _buildLoading();
+    } else if (result == null) {
+      body = _failed && !_loading
+          ? _buildMessage(
+              c,
+              icon: Symbols.wifi_off_rounded,
+              message: l10n.restLoadFailed,
+              action: l10n.restRetry,
+              onAction: _fetch,
+            )
+          : _buildLoading();
+    } else if (places.isEmpty) {
+      body = _loading
+          ? _buildLoading()
+          : _buildMessage(
+              c,
+              icon: Symbols.map_rounded,
+              message: l10n.restEmptyState,
+              action: l10n.restRetry,
+              onAction: _fetch,
+            );
+    } else {
+      body = AppCard(
+        padding: EdgeInsets.zero,
+        radius: 22,
+        clip: true,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                l10n.restScreenTitle,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
+            for (var i = 0; i < places.length; i++)
+              _PlaceRow(
+                place: places[i].$1,
+                distanceMeters: places[i].$2,
+                nearest: i == 0,
+                divider: i > 0,
+                onGo: () => widget.onPlaceSelected(
+                  places[i].$1.location,
+                  places[i].$1.displayName(l10n),
                 ),
               ),
-            ),
+          ],
+        ),
+      );
+    }
 
-            SizedBox(
-              height: 50,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: categories.length,
-                itemBuilder: (context, index) {
-                  final cat = categories[index];
-                  final isActive = _activeCategory == cat['id'];
-                  return Padding(
-                    padding: const EdgeInsets.only(left: 8.0),
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() => _activeCategory = cat['id'] as String);
-                        _fetchPlaces();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isActive ? green : theme.cardColor,
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(
-                            color: isActive ? green : theme.dividerColor,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              cat['icon'] as IconData,
-                              size: 16,
-                              color: isActive ? Colors.black : Colors.grey,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              cat['label'] as String,
-                              style: TextStyle(
-                                color: isActive ? Colors.black : Colors.grey,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.only(top: 12, bottom: 24),
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.restTitle,
+                    style: AppFonts.display(
+                      context,
+                      30,
+                      color: c.text,
+                      tracking: -0.02,
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: AppFonts.body(context, 16, color: c.subtext),
+                  ),
+                ],
               ),
             ),
-
             const SizedBox(height: 16),
-
-            Expanded(
-              child: _isLoading
-                  ? Center(child: CircularProgressIndicator(color: green))
-                  : _places.isEmpty
-                  ? _buildEmptyState(theme, l10n)
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _places.length,
-                      itemBuilder: (context, index) {
-                        final place = _places[index];
-                        return _buildPlaceCard(place, theme, l10n, subColor);
-                      },
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  for (final (id, label, icon) in categories) ...[
+                    if (id != 'all') const SizedBox(width: 8),
+                    _CategoryChip(
+                      label: label,
+                      icon: icon,
+                      active: _category == id,
+                      onTap: () => _selectCategory(id),
                     ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: here == null
+                  ? _MapPlaceholder(color: c.surface2, border: c.line)
+                  : _PlacesMap(
+                      // New results re-fit the camera.
+                      key: ObjectKey(result),
+                      center: here,
+                      places: [for (final (p, _) in places.take(10)) p],
+                    ),
+            ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: body,
             ),
           ],
         ),
@@ -217,144 +341,307 @@ class _RestScreenState extends State<RestScreen> {
     );
   }
 
-  Widget _buildPlaceCard(
-    Map<String, dynamic> place,
-    ThemeData theme,
-    AppLocalizations l10n,
-    Color subColor,
-  ) {
-    final style = _getStyleForType(place['type']);
-    final Color color = style['color'] as Color;
-    final IconData icon = style['icon'] as IconData;
-    final textColor = theme.textTheme.bodyMedium!.color!;
-    final green = theme.primaryColor;
+  Widget _buildLoading() => const Padding(
+    padding: EdgeInsets.symmetric(vertical: 40),
+    child: Center(child: CircularProgressIndicator()),
+  );
+
+  Widget _buildMessage(
+    AppColors c, {
+    required IconData icon,
+    required String message,
+    required String action,
+    required VoidCallback onAction,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          IconTile(
+            icon: icon,
+            background: c.surface2,
+            foreground: c.subtext,
+            size: 56,
+            radius: 18,
+            iconSize: 28,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppFonts.body(context, 16, color: c.subtext),
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: onAction, child: Text(action)),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData? icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    // The active chip is inverted: text colour background, bg colour text.
+    final fg = active ? c.bg : c.text;
+
+    return Semantics(
+      button: true,
+      selected: active,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          constraints: const BoxConstraints(minHeight: 40),
+          padding: EdgeInsets.symmetric(
+            horizontal: icon == null ? 16 : 14,
+            vertical: 9,
+          ),
+          decoration: BoxDecoration(
+            color: active ? c.text : c.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: active ? c.text : c.line),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                AppIcon(icon!, size: 17, color: fg),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: AppFonts.body(
+                  context,
+                  14,
+                  weight: FontWeight.w600,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Stands in for the map until the driver's position is known.
+class _MapPlaceholder extends StatelessWidget {
+  const _MapPlaceholder({required this.color, required this.border});
+
+  final Color color;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 150,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: border),
+      ),
+      child: Center(
+        child: AppIcon(
+          Symbols.my_location_rounded,
+          size: 28,
+          color: AppColors.of(context).subtext,
+        ),
+      ),
+    );
+  }
+}
+
+/// 150-high map with the current position and place pins.
+class _PlacesMap extends StatelessWidget {
+  const _PlacesMap({super.key, required this.center, required this.places});
+
+  final LatLng center;
+  final List<Place> places;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final coordinates = [center, for (final p in places) p.location];
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      height: 150,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.dividerColor),
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: c.line),
       ),
-      child: Row(
+      child: FlutterMap(
+        options: MapOptions(
+          backgroundColor: c.surface2,
+          initialCenter: center,
+          initialZoom: 13,
+          initialCameraFit: coordinates.length > 1
+              ? CameraFit.coordinates(
+                  coordinates: coordinates,
+                  padding: const EdgeInsets.all(28),
+                  maxZoom: 15,
+                )
+              : null,
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.none,
+          ),
+        ),
         children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: color.withValues(alpha: 0.3)),
-            ),
-            child: Icon(icon, color: color, size: 24),
+          TileLayer(
+            urlTemplate: mapboxTileUrl(context),
+            userAgentPackageName: 'com.example.yaqdah_app',
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  place['name'],
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(
-                      CupertinoIcons.location_solid,
-                      size: 14,
-                      color: Colors.grey,
+          MarkerLayer(
+            markers: [
+              for (final p in places)
+                Marker(
+                  point: p.location,
+                  width: 28,
+                  height: 28,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: c.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: c.primary, width: 1.5),
                     ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        place['address'],
-                        style: TextStyle(color: subColor, fontSize: 12),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    child: Center(
+                      child: AppIcon(
+                        p.icon,
+                        size: 15,
+                        color: c.primary,
+                        filled: true,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
                   ),
+                ),
+              Marker(
+                point: center,
+                width: 18,
+                height: 18,
+                child: Container(
                   decoration: BoxDecoration(
-                    color: theme.scaffoldBackgroundColor,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: green,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        "${place['distance']} ${l10n.distanceKm}",
-                        style: TextStyle(
-                          color: green,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                    color: c.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
                   ),
                 ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: () => widget.onPlaceSelected(place['location']),
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: green.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: green.withValues(alpha: 0.5)),
               ),
-              child: Icon(
-                CupertinoIcons.arrow_right_circle_fill,
-                color: green,
-                size: 20,
-              ),
-            ),
+            ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildEmptyState(ThemeData theme, AppLocalizations l10n) {
-    final green = theme.primaryColor;
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+class _PlaceRow extends StatelessWidget {
+  const _PlaceRow({
+    required this.place,
+    required this.distanceMeters,
+    required this.nearest,
+    required this.divider,
+    required this.onGo,
+  });
+
+  final Place place;
+  final double distanceMeters;
+
+  /// The nearest place gets the solid Go button.
+  final bool nearest;
+  final bool divider;
+  final VoidCallback onGo;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final km = distanceMeters / 1000;
+    // Rough drive time at about 40 km/h.
+    final minutes = (km / 40 * 60).ceil().clamp(1, 999);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        border: divider ? Border(top: BorderSide(color: c.line)) : null,
+      ),
+      child: Row(
         children: [
-          const Icon(CupertinoIcons.map, size: 48, color: Colors.grey),
-          const SizedBox(height: 16),
-          Text(l10n.restEmptyState, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 10),
-          TextButton(
-            onPressed: () {
-              setState(() => _lastFetchLocation = null);
-              _fetchPlaces();
-            },
-            child: Text(l10n.restRetry, style: TextStyle(color: green)),
+          IconTile(
+            icon: place.icon,
+            background: c.surface2,
+            foreground: c.subtext,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  place.displayName(l10n),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.body(
+                    context,
+                    16,
+                    weight: FontWeight.w700,
+                    color: c.text,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  l10n.placeRowSubtitle(
+                    place.typeLabel(l10n),
+                    km.toStringAsFixed(1),
+                    minutes,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.body(context, 14, color: c.subtext),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            height: 40,
+            child: Material(
+              color: nearest ? c.primary : c.primarySoft,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onGo,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Center(
+                    child: Text(
+                      l10n.go,
+                      style: AppFonts.body(
+                        context,
+                        14,
+                        weight: FontWeight.w700,
+                        color: nearest ? c.onPrimary : c.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),

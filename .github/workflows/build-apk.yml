@@ -1,0 +1,46 @@
+name: Build APK
+
+# A release APK (arm64) for testing on a phone, signed with the runner's
+# debug key. Add MAPBOX_TOKEN and GEMINI_API_KEY as repository secrets to
+# get maps and AI replies in it.
+on:
+  push:
+    branches: ['feat/**']
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.1
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build release APK
+        env:
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: >
+          flutter build apk --release --target-platform android-arm64
+          --dart-define=MAPBOX_TOKEN="$MAPBOX_TOKEN"
+          --dart-define=GEMINI_API_KEY="$GEMINI_API_KEY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yaqdah-apk-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14

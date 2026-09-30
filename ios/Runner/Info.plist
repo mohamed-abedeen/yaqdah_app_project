@@ -45,5 +45,13 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Yaqdah watches your eyes and head position to warn you when you get drowsy. Face detection runs on your phone.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Yaqdah listens for voice commands when you tap the microphone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Yaqdah turns your voice commands into text.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Yaqdah records your trips, finds nearby rest stops and adds your location to SOS texts.</string>
 </dict>
 </plist>

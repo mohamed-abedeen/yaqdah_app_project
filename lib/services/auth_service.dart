@@ -56,4 +56,21 @@ class AuthService {
     await _auth.currentUser?.updateDisplayName(name);
     await _auth.currentUser?.reload();
   }
+
+  /// Changes the password; Firebase wants the current one confirmed first.
+  /// Throws [FirebaseAuthException] on failure.
+  Future<void> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    final user = _auth.currentUser;
+    final email = user?.email;
+    if (user == null || email == null) {
+      throw FirebaseAuthException(code: 'no-current-user');
+    }
+    await user.reauthenticateWithCredential(
+      EmailAuthProvider.credential(email: email, password: currentPassword),
+    );
+    await user.updatePassword(newPassword);
+  }
 }

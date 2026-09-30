@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -79,11 +80,12 @@ class _YaqdahAppState extends State<YaqdahApp> {
         return ValueListenableBuilder<bool>(
           valueListenable: ThemeService.instance.isDarkMode,
           builder: (context, isDark, child) {
+            final isArabic = settings.locale.languageCode == 'ar';
             return MaterialApp(
               debugShowCheckedModeBanner: false,
               title: 'Yaqdah',
-              theme: ThemeService.instance.lightTheme,
-              darkTheme: ThemeService.instance.darkTheme,
+              theme: ThemeService.instance.lightTheme(isArabic: isArabic),
+              darkTheme: ThemeService.instance.darkTheme(isArabic: isArabic),
               themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
 
               // ── Localization ──────────────────────────────────────────────
@@ -93,10 +95,16 @@ class _YaqdahAppState extends State<YaqdahApp> {
 
               // ── RTL / LTR direction ───────────────────────────────────────
               builder: (context, child) {
-                final isRtl = settings.locale.languageCode == 'ar';
                 return Directionality(
-                  textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
-                  child: child!,
+                  textDirection: isArabic
+                      ? TextDirection.rtl
+                      : TextDirection.ltr,
+                  child: AnnotatedRegion<SystemUiOverlayStyle>(
+                    value: isDark
+                        ? SystemUiOverlayStyle.light
+                        : SystemUiOverlayStyle.dark,
+                    child: child!,
+                  ),
                 );
               },
 

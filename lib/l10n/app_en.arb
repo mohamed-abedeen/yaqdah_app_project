@@ -1,303 +1,389 @@
 {
   "@@locale": "en",
-
   "appTitle": "Yaqdah",
-  "@appTitle": { "description": "App name" },
-
-  "navHome": "Home",
-  "@navHome": { "description": "Bottom nav label - Home" },
-
+  "navDrive": "Drive",
   "navReports": "Reports",
-  "@navReports": { "description": "Bottom nav label - Reports" },
-
   "navRest": "Rest",
-  "@navRest": { "description": "Bottom nav label - Rest" },
-
   "navAccount": "Account",
-  "@navAccount": { "description": "Bottom nav label - Account" },
-
-  "settingsTitle": "Settings",
-  "@settingsTitle": { "description": "Settings screen title" },
-
-  "editProfile": "Edit Profile",
-  "@editProfile": { "description": "Edit profile link text" },
-
-  "sectionEmergency": "Emergency Settings",
-  "@sectionEmergency": {},
-
-  "autoEmergencyTitle": "Auto Emergency Message",
-  "@autoEmergencyTitle": {},
-
-  "autoEmergencySubtitle": "When severe drowsiness is detected with no response",
-  "@autoEmergencySubtitle": {},
-
-  "sectionAI": "Artificial Intelligence",
-  "@sectionAI": {},
-
-  "aiAssistantTitle": "AI Assistant",
-  "@aiAssistantTitle": {},
-
-  "aiAssistantSubtitle": "Automatic voice tips on danger",
-  "@aiAssistantSubtitle": {},
-
-  "sectionNotifications": "Notifications",
-  "@sectionNotifications": {},
-
-  "enableNotifications": "Enable Notifications",
-  "@enableNotifications": {},
-
-  "notificationsSubtitle": "Drowsiness alerts and warnings",
-  "@notificationsSubtitle": {},
-
-  "sound": "Sound",
-  "@sound": {},
-
-  "vibration": "Vibration",
-  "@vibration": {},
-
-  "sectionAppSettings": "App Settings",
-  "@sectionAppSettings": {},
-
-  "darkMode": "Dark Mode",
-  "@darkMode": {},
-
-  "darkModeSubtitle": "Change app appearance",
-  "@darkModeSubtitle": {},
-
-  "testLab": "Test Lab",
-  "@testLab": {},
-
-  "testLabSubtitle": "View live model data",
-  "@testLabSubtitle": {},
-
-  "sectionLanguage": "Language",
-  "@sectionLanguage": {},
-
-  "languageEnglish": "English",
-  "@languageEnglish": {},
-
-  "languageArabic": "العربية",
-  "@languageArabic": {},
-
-  "logout": "Logout",
-  "@logout": {},
-
-  "driverStatus": "Driver Status",
-  "@driverStatus": {},
-
-  "drowsinessLevel": "Drowsiness Level",
-  "@drowsinessLevel": {},
-
-  "statusReady": "Ready for Trip",
-  "@statusReady": {},
-
-  "statusAsleep": "Danger - Stop Now!",
-  "@statusAsleep": {},
-
-  "statusDistracted": "Distracted - Focus!",
-  "@statusDistracted": {},
-
-  "statusDrowsy": "Drowsy",
-  "@statusDrowsy": {},
-
-  "statusAlert": "Alert & Awake",
-  "@statusAlert": {},
-
-  "statusNoFace": "No Face Detected",
-  "@statusNoFace": {},
-
-  "btnEmergency": "Emergency",
-  "@btnEmergency": {},
-
-  "btnStart": "Start",
-  "@btnStart": {},
-
-  "btnStop": "Stop",
-  "@btnStop": {},
-
-  "btnCamera": "Camera",
-  "@btnCamera": {},
-
-  "statDuration": "Duration",
-  "@statDuration": {},
-
-  "statDistance": "Distance",
-  "@statDistance": {},
-
-  "statSpeed": "Speed",
-  "@statSpeed": {},
-
-  "statHeading": "Heading",
-  "@statHeading": {},
-
-  "kmUnit": "km",
-  "@kmUnit": {},
-
-  "kmhUnit": "km/h",
-  "@kmhUnit": {},
-
-  "searchPlaces": "Search places...",
-  "@searchPlaces": {},
-
-  "restScreenTitle": "Nearby Rest Places",
-  "@restScreenTitle": {},
-  "catAll": "All",
-  "@catAll": {},
-  "catHotels": "Hotels",
-  "@catHotels": {},
-  "catCafes": "Cafes",
-  "@catCafes": {},
-  "catMosques": "Mosques",
-  "@catMosques": {},
-  "restEmptyState": "No nearby places found",
-  "@restEmptyState": {},
-  "restRetry": "Try Again",
-  "@restRetry": {},
-  "distanceKm": "km",
-  "@distanceKm": {},
-
-  "reportsTitle": "Reports & Statistics",
-  "@reportsTitle": {},
-  "reportsSubtitle": "Comprehensive driving activity analysis",
-  "@reportsSubtitle": {},
-  "reportsGeneralStats": "General Statistics",
-  "@reportsGeneralStats": {},
-  "reportsThisWeek": "This Week",
-  "@reportsThisWeek": {},
-  "reportsAllTime": "All Time",
-  "@reportsAllTime": {},
-  "reportsTrips": "Trips",
-  "@reportsTrips": {},
-  "reportsAlerts": "Alerts",
-  "@reportsAlerts": {},
-  "reportsTripStatus": "Trip Status Distribution",
-  "@reportsTripStatus": {},
-  "reportsSafe": "Safe",
-  "@reportsSafe": {},
-  "reportsAlert": "Alerts",
-  "@reportsAlert": {},
-  "reportsTime": "Time",
-  "@reportsTime": {},
-  "reportsDrowsy": "Drowsy",
-  "@reportsDrowsy": {},
-  "reportsEmergency": "Emergency",
-  "@reportsEmergency": {},
-  "filterAll": "All",
-  "@filterAll": {},
-  "filterWeek": "Week",
-  "@filterWeek": {},
-  "filterMonth": "Month",
-  "@filterMonth": {},
-  "tripSafe": "Safe",
-  "@tripSafe": {},
-  "tripAlerted": "Alert",
-  "@tripAlerted": {},
-  "tripDuration": "Duration",
-  "@tripDuration": {},
-  "tripDistance": "Distance",
-  "@tripDistance": {},
-  "tripAlertCount": "Alerts",
-  "@tripAlertCount": {},
-  "reportsEmptyTitle": "No Trips Yet",
-  "@reportsEmptyTitle": {},
-  "reportsEmptySubtitle": "Start a trip to see your driving stats here",
-  "@reportsEmptySubtitle": {},
-
-  "loginTitle": "Yaqdah",
-  "@loginTitle": {},
-  "loginSubtitle": "Driver Drowsiness Detection System",
-  "@loginSubtitle": {},
-  "loginHeading": "Sign In",
-  "@loginHeading": {},
-  "loginEmail": "Email",
-  "@loginEmail": {},
-  "loginPassword": "Password",
-  "@loginPassword": {},
-  "loginRememberMe": "Remember me",
-  "@loginRememberMe": {},
-  "loginForgotPassword": "Forgot password?",
-  "@loginForgotPassword": {},
-  "loginButton": "Sign In",
-  "@loginButton": {},
-  "loginNoAccount": "Don't have an account? ",
-  "@loginNoAccount": {},
-  "loginSignup": "Create an account",
-  "@loginSignup": {},
-  "loginErrEmailRequired": "Email is required",
-  "@loginErrEmailRequired": {},
-  "loginErrEmailInvalid": "Email is invalid",
-  "@loginErrEmailInvalid": {},
-  "loginErrPassRequired": "Password is required",
-  "@loginErrPassRequired": {},
-  "loginErrPassShort": "Password must be at least 6 characters",
-  "@loginErrPassShort": {},
-  "loginErrNotFound": "No account found with this email",
-  "@loginErrNotFound": {},
-  "loginErrWrongPass": "Incorrect email or password",
-  "@loginErrWrongPass": {},
-  "loginErrTooMany": "Too many attempts. Try again later",
-  "@loginErrTooMany": {},
-  "loginErrGeneric": "An error occurred",
-  "@loginErrGeneric": {},
-  "loginErrUnexpected": "Unexpected error",
-  "@loginErrUnexpected": {},
-
-  "signupHeading": "Create Account",
-  "@signupHeading": {},
-  "signupTitle": "Register",
-  "@signupTitle": {},
-  "signupFullName": "Full Name",
-  "@signupFullName": {},
-  "signupEmail": "Email",
-  "@signupEmail": {},
-  "signupPassword": "Password",
-  "@signupPassword": {},
-  "signupConfirmPassword": "Confirm Password",
-  "@signupConfirmPassword": {},
-  "signupEmergencyContact": "Emergency Contact Number",
-  "@signupEmergencyContact": {},
-  "signupButton": "Create Account",
-  "@signupButton": {},
-  "signupHaveAccount": "Already have an account? ",
-  "@signupHaveAccount": {},
-  "signupLogin": "Sign In",
-  "@signupLogin": {},
-  "signupErrNameRequired": "Full name is required",
-  "@signupErrNameRequired": {},
-  "signupErrEmailRequired": "Email is required",
-  "@signupErrEmailRequired": {},
-  "signupErrEmailInvalid": "Email is invalid",
-  "@signupErrEmailInvalid": {},
-  "signupErrPassRequired": "Password is required",
-  "@signupErrPassRequired": {},
-  "signupErrPassShort": "Password must be at least 6 characters",
-  "@signupErrPassShort": {},
-  "signupErrConfirmRequired": "Please confirm your password",
-  "@signupErrConfirmRequired": {},
-  "signupErrPassMismatch": "Passwords do not match",
-  "@signupErrPassMismatch": {},
-  "signupErrEmergencyRequired": "Emergency number is required",
-  "@signupErrEmergencyRequired": {},
-  "signupErrEmergencyNumbers": "Emergency number must contain only digits",
-  "@signupErrEmergencyNumbers": {},
-  "signupErrEmailInUse": "Email is already in use",
-  "@signupErrEmailInUse": {},
-  "signupErrWeakPassword": "Password is too weak",
-  "@signupErrWeakPassword": {},
-
-  "permCameraTitle": "Camera Access Required",
-  "@permCameraTitle": {},
-  "permCameraBody": "Yaqdah needs your camera to monitor eye movements and detect drowsiness while driving.",
-  "@permCameraBody": {},
-  "permLocationTitle": "Location Access Required",
-  "@permLocationTitle": {},
-  "permLocationBody": "Yaqdah needs your location for navigation and to send your GPS coordinates in an emergency.",
-  "@permLocationBody": {},
-  "permGrant": "Grant Access",
-  "@permGrant": {},
-  "permDeny": "Not Now",
-  "@permDeny": {},
-
   "offlineBanner": "No internet connection",
-  "@offlineBanner": {}
+  "onboardingSkip": "Skip",
+  "onboardingWelcomeTitle": "Stay awake.\nArrive safe.",
+  "onboardingWelcomeBody": "Yaqdah watches for signs of drowsiness while you drive and warns you before it becomes dangerous.",
+  "onboardingGetStarted": "Get started",
+  "onboardingPermsTitle": "Three permissions keep you safe",
+  "onboardingPermsSubtitle": "You can change these any time in your phone's settings.",
+  "permCameraName": "Camera",
+  "permCameraDesc": "Watches your eyes and head position. Face detection runs on your phone.",
+  "permLocationName": "Location",
+  "permLocationDesc": "Finds nearby rest stops and shares where you are in an emergency.",
+  "permMicName": "Microphone",
+  "permMicDesc": "Talk to the voice assistant without taking your hands off the wheel.",
+  "onboardingAllowAccess": "Allow access",
+  "loginHeading": "Welcome back",
+  "loginSubtitle": "Sign in to start monitoring your drive.",
+  "loginEmail": "Email",
+  "loginPassword": "Password",
+  "loginRememberMe": "Keep me signed in",
+  "loginForgotPassword": "Forgot password?",
+  "loginButton": "Sign in",
+  "loginNoAccount": "New to Yaqdah? ",
+  "loginSignup": "Create an account",
+  "loginErrEmailRequired": "Email is required",
+  "loginErrEmailInvalid": "Email is invalid",
+  "loginErrPassRequired": "Password is required",
+  "loginErrPassShort": "Use at least 6 characters",
+  "loginErrNotFound": "No account found with this email",
+  "loginErrWrongPass": "Incorrect email or password",
+  "loginErrTooMany": "Too many attempts. Try again later",
+  "loginErrGeneric": "An error occurred",
+  "loginErrUnexpected": "Unexpected error",
+  "loginErrResetNeedsEmail": "Enter your email above to reset your password",
+  "loginResetSent": "We sent a reset link to {email}",
+  "@loginResetSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "signupTitle": "Create your account",
+  "signupSubtitle": "Takes about a minute.",
+  "signupFullName": "Full name",
+  "signupEmail": "Email",
+  "signupPassword": "Password",
+  "signupConfirmPassword": "Confirm password",
+  "signupButton": "Create account",
+  "signupHaveAccount": "Already have an account? ",
+  "signupLogin": "Sign in",
+  "signupErrNameRequired": "Full name is required",
+  "signupErrEmailRequired": "Email is required",
+  "signupErrEmailInvalid": "Email is invalid",
+  "signupErrPassRequired": "Password is required",
+  "signupErrPassShort": "Use at least 6 characters",
+  "signupErrConfirmRequired": "Please confirm your password",
+  "signupErrPassMismatch": "Passwords do not match",
+  "signupErrEmergencyRequired": "Emergency number is required",
+  "phoneInvalid": "Enter a valid number, like 91 234 5678",
+  "signupErrEmailInUse": "Email is already in use",
+  "signupErrWeakPassword": "Password is too weak",
+  "emergencyContactTitle": "Emergency contact",
+  "emergencyContactHelp": "If you don't respond to a danger alert, we text your location to this number.",
+  "greetingMorning": "Good morning",
+  "greetingAfternoon": "Good afternoon",
+  "greetingEvening": "Good evening",
+  "readyTitle": "Ready to drive",
+  "almostReadyTitle": "Almost ready",
+  "checksPassed": "All checks passed",
+  "checksAttention": "Some checks need attention",
+  "checksRunning": "Running checks…",
+  "checkFace": "Face visible",
+  "checkFaceFix": "Face the camera",
+  "checkPending": "Checking…",
+  "cameraFront": "Front camera",
+  "cameraBack": "Back camera",
+  "cameraExternal": "External camera",
+  "cameraGeneric": "Camera",
+  "checkSwitch": "Switch",
+  "checkNoCamera": "No camera",
+  "checkGps": "GPS signal",
+  "gpsStrong": "Strong",
+  "gpsWeak": "Weak",
+  "gpsSearching": "Searching…",
+  "gpsOff": "Off",
+  "whereTo": "Where to?",
+  "whereToOptional": "(optional)",
+  "clearDestination": "Clear destination",
+  "lastTripLine": "Last trip {when} · {distance} km · {alerts}",
+  "@lastTripLine": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      },
+      "distance": {
+        "type": "String"
+      },
+      "alerts": {
+        "type": "String"
+      }
+    }
+  },
+  "lastTripToday": "today",
+  "lastTripYesterday": "yesterday",
+  "lastTripOn": "on {day}",
+  "@lastTripOn": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "alertCount": "{count, plural, =0{no alerts} =1{1 alert} other{{count} alerts}}",
+  "@alertCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "startTrip": "Start trip",
+  "voiceAssistant": "Voice assistant",
+  "searchPlaces": "Search for a place",
+  "searchNoResults": "No places found",
+  "droppedPin": "Dropped pin",
+  "findingRoute": "Finding route…",
+  "routeUnavailable": "No route found",
+  "etaLine": "{minutes} min · arrive {time}",
+  "@etaLine": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "recenterMap": "Recenter map",
+  "driverStatus": "Driver status",
+  "statusAwake": "Awake",
+  "statusDrowsy": "Drowsy",
+  "statusDistracted": "Distracted",
+  "statusNoFace": "No face detected",
+  "statusDanger": "Danger",
+  "drowsinessCaption": "drowsiness",
+  "statTime": "Time",
+  "statDistance": "Distance",
+  "statSpeed": "Speed",
+  "kmUnit": "km",
+  "kmhUnit": "km/h",
+  "holdForSos": "Hold for SOS",
+  "endTrip": "End trip",
+  "standbyTitle": "Standby mode",
+  "standbyHint": "Tap anywhere to wake",
+  "sosSentTo": "SOS sent to {contact}",
+  "@sosSentTo": {
+    "placeholders": {
+      "contact": {
+        "type": "String"
+      }
+    }
+  },
+  "stopAlarm": "Stop alarm",
+  "sosSendFailed": "Couldn't send the SOS text",
+  "sosSending": "Sending SOS…",
+  "sosSmsBody": "SOS from Yaqdah: the driver may be in danger.",
+  "sosSmsLocation": "Location",
+  "voiceEndingTrip": "Ending the trip.",
+  "voiceSendingSos": "Sending an emergency alert.",
+  "voiceUnavailable": "Sorry, I can't answer right now.",
+  "interventionDistracted": "Eyes on the road!",
+  "interventionDrowsy": "You look tired. Take a break soon.",
+  "drowsyAlertTitle": "You're getting drowsy",
+  "drowsyAlertBody": "Your eyes are closing more often. A 15-minute break makes a real difference.",
+  "nearestRestStop": "Nearest rest stop",
+  "findingRestStop": "Finding a rest stop…",
+  "noRestStopNearby": "No rest stops found nearby. Pull over somewhere safe.",
+  "takeMeThere": "Take me there",
+  "keepDriving": "I'm fine, keep driving",
+  "minutesShort": "{minutes} min",
+  "@minutesShort": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "dangerAlertTitle": "Pull over now",
+  "dangerAlertBody": "Your eyes have been closed. If you don't respond, we'll text your location to your emergency contact.",
+  "sosCountdown": "{seconds, plural, =1{Sending SOS in 1 second} other{Sending SOS in {seconds} seconds}}",
+  "@sosCountdown": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "sosTo": "to {contact}",
+  "@sosTo": {
+    "placeholders": {
+      "contact": {
+        "type": "String"
+      }
+    }
+  },
+  "sosAutoOff": "Automatic SOS text is off",
+  "sosNoContact": "No emergency contact set",
+  "sosSentTitle": "SOS sent",
+  "imAwake": "I'm awake",
+  "sendSosNow": "Send SOS now",
+  "reportsTitle": "Reports",
+  "filterWeek": "Week",
+  "filterMonth": "Month",
+  "filterAll": "All",
+  "driverLevel": "Driver level",
+  "levelN": "Level {level}",
+  "@levelN": {
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "safeKm": "{km} safe km",
+  "@safeKm": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      }
+    }
+  },
+  "kmToNextLevel": "{km} km to Level {level}",
+  "@kmToNextLevel": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "badgeFirstSafeTrip": "First Safe Trip",
+  "badgePerfect10": "Perfect 10",
+  "badgeNightOwl": "Night Owl",
+  "badgeMarathoner": "Marathoner",
+  "reportsTrips": "Trips",
+  "reportsDistance": "Distance",
+  "reportsAlerts": "Alerts",
+  "legendSafeDays": "Safe days",
+  "legendAlertDays": "Days with alerts",
+  "recentTrips": "Recent trips",
+  "reportsNoTripsInRange": "No trips in this period",
+  "tripRowSubtitle": "{duration} · {distance} km · {alerts}",
+  "@tripRowSubtitle": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      },
+      "distance": {
+        "type": "String"
+      },
+      "alerts": {
+        "type": "String"
+      }
+    }
+  },
+  "durationHoursMinutes": "{hours} h {minutes} min",
+  "@durationHoursMinutes": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "reportsEmptyTitle": "No trips yet",
+  "reportsEmptySubtitle": "Start a trip to see your driving stats here.",
+  "tripDetailsTitle": "Trip details",
+  "shareReport": "Share report",
+  "tripSafe": "Safe",
+  "safetyScore": "Safety score",
+  "tripDuration": "Duration",
+  "tripDistance": "Distance",
+  "avgSpeed": "Avg speed",
+  "topSpeed": "Top speed",
+  "timeline": "Timeline",
+  "tlTripStarted": "Trip started",
+  "tlTripEnded": "Trip ended",
+  "tlDrowsy": "Drowsiness detected",
+  "tlDistracted": "Distraction detected",
+  "tlDanger": "Eyes closed: danger alert",
+  "tlSos": "SOS sent",
+  "tlTookBreak": "you took a break",
+  "tlKeptDriving": "you kept driving",
+  "tlConfirmedAwake": "you confirmed you were awake",
+  "deleteTrip": "Delete trip",
+  "deleteTripConfirmTitle": "Delete this trip?",
+  "deleteTripConfirmBody": "This removes the trip and its report. You can't undo this.",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "noRouteRecorded": "No route recorded",
+  "restTitle": "Take a break",
+  "restSubtitle": "Rest stops within {km} km of you",
+  "@restSubtitle": {
+    "placeholders": {
+      "km": {
+        "type": "int"
+      }
+    }
+  },
+  "catAll": "All",
+  "catCafes": "Cafés",
+  "catMosques": "Mosques",
+  "catHotels": "Hotels",
+  "placeCafe": "Café",
+  "placeMosque": "Mosque",
+  "placeHotel": "Hotel",
+  "placeFuel": "Fuel station",
+  "placeRestArea": "Rest area",
+  "placeOther": "Place",
+  "placeRowSubtitle": "{type} · {distance} km · {minutes} min",
+  "@placeRowSubtitle": {
+    "placeholders": {
+      "type": {
+        "type": "String"
+      },
+      "distance": {
+        "type": "String"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "go": "Go",
+  "restEmptyState": "No rest stops found nearby",
+  "restRetry": "Try again",
+  "restWaitingLocation": "Waiting for your location…",
+  "restLocationOff": "Turn on location to see rest stops near you.",
+  "restLoadFailed": "Couldn't load places. Check your connection and try again.",
+  "openSettings": "Open settings",
+  "accountTitle": "Account",
+  "userFallbackName": "Driver",
+  "edit": "Edit",
+  "sectionSafety": "Safety",
+  "sectionAlerts": "Alerts",
+  "sectionApp": "App",
+  "autoSosTitle": "Automatic SOS text",
+  "autoSosSubtitle": "If you don't respond to a danger alert",
+  "notSet": "Not set",
+  "voiceAssistantSubtitle": "Spoken tips when you're at risk",
+  "alarmSound": "Alarm sound",
+  "vibration": "Vibration",
+  "appearance": "Appearance",
+  "themeDark": "Dark",
+  "themeLight": "Light",
+  "language": "Language",
+  "languageEnglish": "English",
+  "languageArabic": "العربية",
+  "testLab": "Test lab",
+  "testLabValue": "Live model data",
+  "signOut": "Sign out",
+  "editProfileTitle": "Edit profile",
+  "editProfileSubtitle": "Update your details",
+  "changePassword": "Change password",
+  "currentPassword": "Current password",
+  "newPassword": "New password",
+  "deleteAllData": "Delete all trip data",
+  "deleteAllDataSubtitle": "Removes every trip saved on this phone",
+  "deleteDataConfirmTitle": "Delete all trip data?",
+  "deleteDataConfirmBody": "This deletes every trip saved on this phone. You can't undo this.",
+  "saveChanges": "Save changes",
+  "profileUpdated": "Profile updated",
+  "allDataDeleted": "All trip data deleted",
+  "passwordChanged": "Password changed",
+  "currentPasswordWrong": "Current password is incorrect",
+  "smsPermissionNeeded": "Allow SMS so Yaqdah can text your emergency contact"
 }
